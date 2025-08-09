@@ -33,7 +33,7 @@ class MySQLController():
                             task_creation_date,
                             task_archiving_date,
                             last_change_date
-                        FROM wb_stock_transfer.one_time_tasks
+                        FROM mp_data.a_wb_stock_transfer_one_time_tasks
                         WHERE is_archived != 1
                         AND warehouses_from_ids IS NOT NULL
                         AND warehouses_to_ids IS NOT NULL
@@ -50,7 +50,7 @@ class MySQLController():
                                 transfer_qty,
                                 transfer_qty_left,
                                 is_archived
-                            FROM wb_stock_transfer.products_to_one_time_tasks
+                            FROM mp_data.a_wb_stock_transfer_products_to_one_time_tasks
                             WHERE task_id IS NOT NULL
                             AND product_wb_id IS NOT NULL
                             AND size_id IS NOT NULL
@@ -108,7 +108,7 @@ class MySQLController():
 
         try:
             # 1. Обновляем transfer_qty_left по каждой записи
-            sql = f"""UPDATE wb_stock_transfer.products_to_one_time_tasks
+            sql = f"""UPDATE mp_data.a_wb_stock_transfer_products_to_one_time_tasks
                         SET transfer_qty_left = %s
                         WHERE task_id = %s
                         AND product_wb_id = %s
@@ -131,13 +131,13 @@ class MySQLController():
 
             # Завершаем
             if all_zero:
-                sql_update_status = """UPDATE wb_stock_transfer.one_time_tasks
+                sql_update_status = """UPDATE mp_data.a_wb_stock_transfer_one_time_tasks
                                     SET task_status = 2
                                     WHERE task_id = %s;"""
                 self.db.execute_non_query(sql_update_status, (int(task.task_id),))
             else:
                 if task.task_status == 0:
-                    sql_update_status = """UPDATE wb_stock_transfer.one_time_tasks
+                    sql_update_status = """UPDATE mp_data.a_wb_stock_transfer_one_time_tasks
                                         SET task_status = 1
                                         WHERE task_id = %s;"""
                     self.db.execute_non_query(sql_update_status, (int(task.task_id),))
@@ -177,7 +177,7 @@ class MySQLController():
 
         try:
             sql = """
-                INSERT INTO wb_stock_transfer.warehouse_state_log (office_id, src_value, dst_value)
+                INSERT INTO mp_data.a_wb_stock_transfer_warehouse_state_log (office_id, src_value, dst_value)
                 VALUES (%s, %s, %s);
             """
 

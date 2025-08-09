@@ -95,6 +95,10 @@ class OneTimeTaskProcessor:
 
                 # Для каждого склада донора из доступных
                 for src_warehouse_id in available_warehouses_from_ids:
+                    warehouse_quota_src = quota_dict[src_warehouse_id]['src']  # Если квота на нуле, пропускаем
+                    if warehouse_quota_src < 1:
+                        continue
+
                     self.logger.debug("Обработка склада-донора src_warehouse_id=%s", src_warehouse_id)
                     current_warehouse_transfer_request_bodies = defaultdict(dict)  # Записи трансфера по донору на каждое наставление
 
@@ -120,6 +124,13 @@ class OneTimeTaskProcessor:
                             self.logger.exception("Ошибка при создании записей для size_id=%s: %s", getattr(size, "size_id", None), e)
 
                     for dst_warehouse_id, warehouse_entries in current_warehouse_transfer_request_bodies.items():
+
+                        dst_warehouse_quota = quota_dict[dst_warehouse_id]['dst'] # Если квота на нуле, пропускаем
+                        src_warehouse_quota = quota_dict[src_warehouse_id]['src']
+
+                        if dst_warehouse_quota < 1 or src_warehouse_quota < 1:
+                            continue
+
                         try:
                             self.logger.debug("Формирование тела заявки: src=%s -> dst=%s; entries=%s",
                                               src_warehouse_id, dst_warehouse_id, warehouse_entries)
@@ -145,6 +156,8 @@ class OneTimeTaskProcessor:
                                             self.logger.debug(
                                                 "Обновлен transfer_qty_left_real для size_id=%s: -%s",
                                                 size.size_id, warehouse_entries[size.size_id]['count'])
+                                            quota_dict[src_warehouse_id]['src'] -= warehouse_entries[size.size_id]['count']
+                                            quota_dict[dst_warehouse_id]['dst'] -= warehouse_entries[size.size_id]['count']
                                             
                             except Exception as e:
                                 print(f"Ошибка при отправке запроса: {e}")

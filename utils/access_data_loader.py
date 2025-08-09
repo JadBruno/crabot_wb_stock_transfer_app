@@ -53,9 +53,10 @@ class AccessDataLoader:
         
         def fill_cookie_access_data(self):
                 """ Заполняет словарь доступов к БД """
-
+                cookie_data = {}
                 try:
-                        cookie_data = self.__sec_mod.get_access_data('Cookies')['Cookies']
+                        # cookie_data = self.__sec_mod.get_access_data('Wildberries Seller ЛК Cookies с доступом Поставки')['Cookies']
+                        cookie_data = self.__sec_mod.get_access_data('Wildberries Seller ЛК Cookies с доступом Поставки')['Wildberries Seller ЛК Cookies с доступом Поставки']['Cookies']
                         self.__logger.debug("Получение cookies")
 
 
@@ -66,36 +67,14 @@ class AccessDataLoader:
         
         def fill_tokenv3_access_data(self):
                 """ Заполняет словарь доступов к БД """
-
+                tokenV3 = {}
                 try:
-                        tokenV3 = self.__sec_mod.get_access_data('WBTokenV3')['WBTokenV3']
-                        self.__logger.debug("Получение tokenV3")
+                        tokenV3 = self.__sec_mod.get_access_data('Wildberries Seller ЛК Cookies с доступом Поставки')['Wildberries Seller ЛК Cookies с доступом Поставки']['WBTokenV3']
 
                 except Exception as e:
                         self.__logger.exception(f"Ошибка при получение доступов к БД: {e}")
 
                 return tokenV3
-        
-
-        def fill_api_access_data(self):
-
-                ozon_api_access_dict = {}
-        
-                try:
-                
-                        seller_api_data = self.__sec_mod.get_access_data("Ozon Seller Admin API")["Ozon Seller Admin API"]
-                        self.__logger.debug("Получение токена доступа к Ozon Seller API")
-                        ozon_api_access_dict['ozon_client_id'] = seller_api_data['Client ID']
-                        self.__logger.debug("В ozon_api_access_dict добавлен ozon_client_id")
-                        ozon_api_access_dict['ozon_api_key'] = seller_api_data['API key']
-                        self.__logger.debug("В ozon_api_access_dict добавлен ozon_api_key")
-                        self.__logger.debug("Успешное заполнение ozon_api_access_dict")
-                
-                except Exception as e:
-                
-                        self.__logger.exception(f"Ошибка при получение доступов Ozon API: {e}")
-                
-                return ozon_api_access_dict
         
 
 

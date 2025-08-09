@@ -39,23 +39,23 @@ class Dependencies:
 
     @cached_property
     def encrypted_cookies(self):
-        # return self.access_data_loader.get_cookies()
-        return self.mysql_controller.get_cookies_by_id(1)
+        return self.access_data_loader.get_cookies()
+        # return self.mysql_controller.get_cookies_by_id(1)
 
     
     @cached_property
     def cookie_jar(self):
-        cookies =  self.cookie_utils.decrypt(self.encrypted_cookies)
-        # cookies = self.access_data_loader.get_cookies()
+        # cookies =  self.cookie_utils.decrypt(self.encrypted_cookies)
+        cookies = self.access_data_loader.get_cookies()
         return self.cookie_utils.parse_cookie_string(cookies)
 
     @cached_property
     def authorized_headers(self):
         headers_copy = default_headers.copy()
-        # tokenV3 = self.access_data_loader.get_tokenV3()
-        decrypted_cookies =  self.cookie_utils.decrypt(self.encrypted_cookies)
-        headers_copy['AuthorizeV3'] = self.cookie_utils.extract_tokenV3(decrypted_cookies)
-        # headers_copy['AuthorizeV3'] = tokenV3
+        tokenV3 = self.access_data_loader.get_tokenV3()
+        # decrypted_cookies =  self.cookie_utils.decrypt(self.encrypted_cookies)
+        # headers_copy['AuthorizeV3'] = self.cookie_utils.extract_tokenV3(decrypted_cookies)
+        headers_copy['AuthorizeV3'] = tokenV3
         return headers_copy
 
 
