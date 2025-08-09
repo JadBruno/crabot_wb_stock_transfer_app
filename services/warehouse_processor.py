@@ -97,6 +97,7 @@ class OneTimeTaskProcessor:
                 for src_warehouse_id in available_warehouses_from_ids:
                     warehouse_quota_src = quota_dict[src_warehouse_id]['src']  # Если квота на нуле, пропускаем
                     if warehouse_quota_src < 1:
+                        self.logger.debug(f"Недостаточно квоты на складе-доноре. src: {src_warehouse_id} - {src_warehouse_quota}")
                         continue
 
                     self.logger.debug("Обработка склада-донора src_warehouse_id=%s", src_warehouse_id)
@@ -129,6 +130,8 @@ class OneTimeTaskProcessor:
                         src_warehouse_quota = quota_dict[src_warehouse_id]['src']
 
                         if dst_warehouse_quota < 1 or src_warehouse_quota < 1:
+                            self.logger.debug(f"На одном из складов. src: {src_warehouse_id} - {src_warehouse_quota} | dst: {dst_warehouse_id} - {dst_warehouse_quota}")
+
                             continue
 
                         try:
