@@ -213,7 +213,7 @@ class OneTimeTaskProcessor:
         for office_id in office_id_list:
             for mode in modes:
                 try:
-                    time.sleep(0.1)
+                    time.sleep(0.5)
                     self.api_controller.request(
                         base_url="https://seller-weekly-report.wildberries.ru",
                         method="OPTIONS",
@@ -224,7 +224,7 @@ class OneTimeTaskProcessor:
                         
                     self.logger.debug("OPTIONS квоты отправлен office_id=%s mode=%s", office_id, mode)
 
-                    time.sleep(0.1)
+                    time.sleep(0.5)
                     response = self.api_controller.request(
                         base_url="https://seller-weekly-report.wildberries.ru",
                         method="GET",
@@ -369,12 +369,12 @@ class OneTimeTaskProcessor:
         try:
             response = self.api_controller.request(
                 base_url="https://seller-weekly-report.wildberries.ru",
-                method="GET",
+                method="POST",
                 endpoint="/ns/shifts/analytics-back/api/v1/order",
                 json=request_body,
                 cookies=self.cookie_jar,
-                headers=self.headers
-            )
+                headers=self.headers)
+            
             self.logger.info("Ответ на transfer request: status=%s", getattr(response, "status_code", None))
             return response
 
