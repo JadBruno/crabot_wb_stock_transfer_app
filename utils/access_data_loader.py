@@ -108,5 +108,5 @@ class AccessDataLoader:
                 return self.__cookies
         
         def get_tokenV3(self):
-                return self.__cookies
+                return self.__tokenV3
         
