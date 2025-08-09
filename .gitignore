@@ -1,0 +1,71 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.Python
+
+# виртуальные окружения
+.venv/
+venv/
+ENV/
+env/
+
+# зависимости/сборки/дистрибутивы
+build/
+dist/
+wheels/
+*.egg-info/
+*.egg
+.eggs/
+
+# тесты / покрытие
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# типизация / линтеры / кэш
+.mypy_cache/
+.pytype/
+.pyre/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# логи
+*.log
+
+# --- Framework-specific (по желанию можно удалить ненужное) ---
+# Django:
+*.mo
+*.pot
+local_settings.py
+db.sqlite3
+
+# Flask:
+instance/
+.webassets-cache
+
+# Celery:
+celerybeat-schedule
+celerybeat.pid
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- VS Code ---
+.vscode/
+.history/
+
+# --- Secrets (если используете) ---
+.env
+.env.*
+*.env
+
+# --- Project-specific ---
+csd.py
