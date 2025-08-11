@@ -165,7 +165,7 @@ class MySQLController():
             sql = """
                 SELECT wb_article_id, MAX(qty) AS max_qty
                 FROM mp_data.a_wb_catalog_stocks
-                WHERE time_beg > NOW() - INTERVAL 172 HOUR
+                WHERE time_beg > NOW() - INTERVAL 48 HOUR
                 GROUP BY wb_article_id
                 ORDER BY max_qty DESC
                 LIMIT 1;
