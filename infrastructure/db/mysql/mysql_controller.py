@@ -1,7 +1,7 @@
 from collections import defaultdict
 from infrastructure.db.mysql.base import SyncDatabase
 from models.tasks import TaskWithProducts, ProductToTask, ProductSizeInfo
-
+import json
 
 class MySQLController():
 
@@ -9,10 +9,22 @@ class MySQLController():
 
         self.db = db
 
+
+    @staticmethod
+    def _parse_json_field(value) -> tuple:
+        if value is None:
+            return ()
+        if isinstance(value, str):
+            return tuple(json.loads(value))
+        if isinstance(value, list):
+            return tuple(value)
+        return (value,)
+
+
     def get_cookies_by_id(self, record_id: int) -> str | None:
         query = """
             SELECT cookies 
-            FROM wb_stock_transfer_data 
+            FROM dostup.wb_stock_transfer_data 
             WHERE id = %s
         """
         result = self.db.execute_query(query, (record_id,))
@@ -90,8 +102,8 @@ class MySQLController():
 
             result[task_id] = TaskWithProducts(
                 task_id=task_id,
-                warehouses_from_ids=t["warehouses_from_ids"],
-                warehouses_to_ids=t["warehouses_to_ids"],
+                warehouses_from_ids=self._parse_json_field(t["warehouses_from_ids"]),
+                warehouses_to_ids=self._parse_json_field(t["warehouses_to_ids"]),
                 task_status=t["task_status"],
                 is_archived=bool(t["is_archived"]),
                 task_creation_date=t["task_creation_date"],
@@ -153,7 +165,7 @@ class MySQLController():
             sql = """
                 SELECT wb_article_id, MAX(qty) AS max_qty
                 FROM mp_data.a_wb_catalog_stocks
-                WHERE time_beg > NOW() - INTERVAL 72 HOUR
+                WHERE time_beg > NOW() - INTERVAL 172 HOUR
                 GROUP BY wb_article_id
                 ORDER BY max_qty DESC
                 LIMIT 1;

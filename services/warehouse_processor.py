@@ -61,7 +61,7 @@ class OneTimeTaskProcessor:
 
             try:
                 # Проверяем, есть ли для задания квоты на перемещение
-                available_warehouses_from_ids, available_warehouses_to_ids = self.get_available_warehouses_by_quota(quota_dict=quota_dict)
+                available_warehouses_from_ids, available_warehouses_to_ids = self.get_available_warehouses_by_quota(quota_dict=quota_dict, task=task)
                 self.logger.debug("Доступные склады-источники: %s; склады-получатели: %s",
                                   available_warehouses_from_ids, available_warehouses_to_ids)
                 if not available_warehouses_from_ids or not available_warehouses_to_ids:
@@ -119,6 +119,7 @@ class OneTimeTaskProcessor:
                                 product_stocks=product_stocks,
                                 available_warehouses_to_ids=available_warehouses_to_ids,
                                 quota_dict=quota_dict,
+                                task=task,
                                 current_warehouse_transfer_request_bodies=current_warehouse_transfer_request_bodies)
                             
                         except Exception as e:
@@ -263,11 +264,11 @@ class OneTimeTaskProcessor:
         self.logger.info("Итоговые квоты получены: %s офисов", len(quota_dict))
         return quota_dict
 
-    def get_available_warehouses_by_quota(self, quota_dict: Dict[int, Dict[str, int]]) -> Tuple[List[int], List[int]]:
+    def get_available_warehouses_by_quota(self, quota_dict: Dict[int, Dict[str, int]], task: TaskWithProducts) -> Tuple[List[int], List[int]]:
         self.logger.debug("Расчёт доступных складов по квотам")
         try:
-            available_warehouses_from_ids = [wid for wid, q in quota_dict.items() if q.get('src', 0) != 0]
-            available_warehouses_to_ids = [wid for wid, q in quota_dict.items() if q.get('dst', 0) != 0]
+            available_warehouses_from_ids = [wid for wid, q in quota_dict.items() if q.get('src', 0) != 0 and wid in task.warehouses_from_ids]
+            available_warehouses_to_ids = [wid for wid, q in quota_dict.items() if q.get('dst', 0) != 0 and wid in task.warehouses_to_ids]
             self.logger.info("Доступно from: %s; to: %s",
                              len(available_warehouses_from_ids), len(available_warehouses_to_ids))
             return available_warehouses_from_ids, available_warehouses_to_ids
@@ -281,6 +282,7 @@ class OneTimeTaskProcessor:
                                    product_stocks: dict,
                                    available_warehouses_to_ids: list,
                                    quota_dict: dict,
+                                   task: TaskWithProducts,
                                    current_warehouse_transfer_request_bodies: defaultdict):
         self.logger.debug("Старт create_single_size_entries(): src=%s size_id=%s",
                           src_warehouse_id, getattr(size, "size_id", None))
@@ -303,7 +305,7 @@ class OneTimeTaskProcessor:
                     self.logger.debug("move_qty<=0 для size_id=%s, пропуск", size_id)
                     continue
 
-                for dst_warehouse_id in available_warehouses_to_ids:
+                for dst_warehouse_id in task.warehouses_to_ids:
                     if size.transfer_qty_left_virtual > 0 and move_qty > 0:
                         try:
                             dst_quota = quota_dict[dst_warehouse_id]['dst']
@@ -311,7 +313,7 @@ class OneTimeTaskProcessor:
                             self.logger.exception("Ошибка доступа к квоте dst для склада %s: %s", dst_warehouse_id, e)
                             dst_quota = 0
 
-                        if dst_quota > 0:
+                        if dst_quota > 0 and dst_warehouse_id in available_warehouses_to_ids:
                             transfer_amount = min(dst_quota, move_qty, available_qty)
                             request_count_entry = {
                                 "chrtID": stock_entry["chrtID"],

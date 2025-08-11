@@ -53,9 +53,9 @@ class Dependencies:
     def authorized_headers(self):
         headers_copy = default_headers.copy()
         tokenV3 = self.access_data_loader.get_tokenV3()
+        headers_copy['AuthorizeV3'] = tokenV3
         # decrypted_cookies =  self.cookie_utils.decrypt(self.encrypted_cookies)
         # headers_copy['AuthorizeV3'] = self.cookie_utils.extract_tokenV3(decrypted_cookies)
-        headers_copy['AuthorizeV3'] = tokenV3
         return headers_copy
 
 
