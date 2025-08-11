@@ -1,0 +1,7 @@
+pydantic==2.11.5
+aiomysql==0.2.0
+PyMySQL==1.1.0
+ijson==3.4.0
+requests==2.31.0
+pycryptodome==3.21.0 #Для доступов в секермодуле
+cryptography==42.0.5 #
