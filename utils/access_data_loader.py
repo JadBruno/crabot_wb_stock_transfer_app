@@ -8,6 +8,7 @@ class AccessDataLoader:
                 self.__mysql_connect_params_dict = self.fill_mysql_access_data()
                 self.__cookies = self.fill_cookie_access_data()
                 self.__tokenV3 = self.fill_tokenv3_access_data()
+                self.__wb_content_api_key = self.fill_wb_content_api_key_acces_data()
 
         
         def simple_logger(func):
@@ -75,7 +76,17 @@ class AccessDataLoader:
                         self.__logger.exception(f"Ошибка при получение доступов к БД: {e}")
 
                 return tokenV3
-        
+
+        def fill_wb_content_api_key_acces_data(self):
+                """ Заполняет словарь доступов к БД """
+                api_key = ""
+                try:
+                        api_key = self.__sec_mod.get_access_data('Wildberries API для контента')['Wildberries API для контента']['API key']
+
+                except Exception as e:
+                        self.__logger.exception(f"Ошибка при получение доступов к БД: {e}")
+
+                return api_key
 
 
         def get_mysql_connect_params_dict(self):
@@ -88,4 +99,7 @@ class AccessDataLoader:
         
         def get_tokenV3(self):
                 return self.__tokenV3
+        
+        def get_wb_content_api_key(self):
+                return self.__wb_content_api_key
         

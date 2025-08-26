@@ -204,3 +204,239 @@ class MySQLController():
         except Exception as e:
             return False
 
+
+    def insert_products_on_the_way(self,
+                                   items: list[tuple[int, int, int]]) -> bool:
+
+        if not items:
+            return False
+
+        sql = """INSERT INTO mp_data.a_wb_stock_transfer_products_on_the_way(nmId, 
+                                                                            warehouse_from_id, 
+                                                                            warehouse_to_id)
+                VALUES (%s, %s, %s)"""
+
+        params = [(int(nm), int(w_from), int(w_to)) for nm, w_from, w_to in items]
+
+        try:
+            self.db.execute_many(sql, params)
+            return True
+        except Exception:
+            return False
+        
+
+    def get_all_products_with_stocks(self):
+
+        sql = """WITH stock_with_max_time_end AS (
+                                                SELECT wb_article_id, warehouse_id, size_id, MAX(time_end) AS max_time_end
+                                                FROM mp_data.a_wb_catalog_stocks
+                                                GROUP BY wb_article_id, warehouse_id, size_id)
+                SELECT t.wb_article_id, t.warehouse_id, t.size_id, t.time_end, t.qty, awis.size
+                FROM mp_data.a_wb_catalog_stocks t
+                INNER JOIN stock_with_max_time_end m
+                ON  t.wb_article_id = m.wb_article_id
+                AND t.warehouse_id = m.warehouse_id
+                AND t.size_id = m.size_id
+                AND t.time_end = m.max_time_end
+                LEFT JOIN mp_data.a_wb_izd_size awis ON awis.size_id = t.size_id;"""
+
+        try:
+            result = self.db.execute_query(sql)
+            return result
+        except Exception:
+            return False
+            
+        
+
+    def get_products_transfers_on_the_way(self):
+        sql = """
+            SELECT
+                nmId AS wb_article_id,
+                warehouse_from_id,
+                warehouse_to_id,
+                size_id,
+                qty,
+                created_at
+            FROM mp_data.a_wb_stock_transfer_products_on_the_way"""
+        
+        try:
+            return self.db.execute_query(sql)
+        except Exception:
+            return False
+        
+
+
+    def get_all_products_with_stocks_with_region(self):
+
+        sql = """WITH stock_with_max_time_end AS (
+                                                SELECT wb_article_id, warehouse_id, size_id, MAX(time_end) AS max_time_end
+                                                FROM mp_data.a_wb_catalog_stocks
+                                                GROUP BY wb_article_id, warehouse_id, size_id)
+                SELECT t.wb_article_id, t.warehouse_id, t.size_id, t.time_end, t.qty, awis.size, awstww.region_id 
+                FROM mp_data.a_wb_catalog_stocks t
+                INNER JOIN stock_with_max_time_end m
+                ON  t.wb_article_id = m.wb_article_id
+                AND t.warehouse_id = m.warehouse_id
+                AND t.size_id = m.size_id
+                AND t.time_end = m.max_time_end
+                LEFT JOIN mp_data.a_wb_izd_size awis ON awis.size_id = t.size_id
+                LEFT JOIN mp_data.a_wb_stock_transfer_wb_warehourses awstww ON awstww.wb_office_id  = t.warehouse_id;"""
+
+        try:
+            result = self.db.execute_query(sql)
+            return result
+        except Exception:
+            return False
+        
+
+    def get_products_transfers_on_the_way_with_region(self):
+        sql = """
+            SELECT
+                nmId AS wb_article_id,
+                warehouse_from_id,
+                warehouse_to_id,
+                size_id,
+                qty,
+                awstww.region_id,
+                created_at
+            FROM mp_data.a_wb_stock_transfer_products_on_the_way
+            LEFT JOIN mp_data.a_wb_stock_transfer_wb_warehourses awstww ON awstww.wb_office_id  = mp_data.a_wb_stock_transfer_products_on_the_way.warehouse_to_id"""
+        
+        try:
+            return self.db.execute_query(sql)
+        except Exception:
+            return False
+        
+
+    def get_current_regular_task(self):
+
+        sql = """
+            SELECT
+                task_id,
+                target_central,
+                target_north_west,
+                target_volga,
+                target_south,
+                target_urals,
+                target_siberia,
+                target_north_caucasus,
+                target_far_east,
+                min_central,
+                min_north_west,
+                min_volga,
+                min_south,
+                min_urals,
+                min_siberia,
+                min_north_caucasus,
+                min_far_east,
+                is_archived,
+                task_creation_date,
+                task_archiving_date,
+                last_change_date
+            FROM mp_data.a_wb_stock_transfer_regular_tasks
+            WHERE is_archived = 0
+            ORDER BY task_creation_date DESC
+            LIMIT 1;"""
+        try:
+            result = self.db.execute_query(sql)
+            if not result:
+                return None
+            return result[0]  
+        except Exception:
+            return None
+        
+    def get_warehouses_regions_map(self):
+        sql = """
+            SELECT wb_office_id, region_id
+            FROM mp_data.a_wb_stock_transfer_wb_warehourses awstww
+            WHERE wb_office_id IS NOT NULL
+        """
+        try:
+            return self.db.execute_query(sql)
+        except Exception:
+            return False
+        
+    def get_real_warehouses_regions_map(self):
+        sql = """
+            SELECT warehouse_id, region_id
+            FROM mp_data.a_wb_stock_transfer_wb_warehourses awstww
+        """
+        try:
+            return self.db.execute_query(sql)
+        except Exception:
+            return False
+        
+
+    def get_stocks_for_regular_tasks(self):
+        sql = """WITH stocks AS (
+                                SELECT DISTINCT wb_article_id, warehouse_id, size_id, qty, time_end
+                                FROM mp_data.a_wb_catalog_stocks
+                                ORDER BY wb_article_id, warehouse_id, size_id, time_end DESC)
+                SELECT s.wb_article_id, s.warehouse_id, awis.size, s.size_id, s.time_end, s.qty, o.region_id
+                FROM stocks s
+                JOIN mp_data.a_wb_stock_transfer_wb_offices o
+                ON s.warehouse_id = o.office_id
+                LEFT JOIN mp_data.a_wb_izd_size awis ON awis.size_id = s.size_id
+                WHERE o.region_id IS NOT NULL;"""
+        try:
+            return self.db.execute_query(sql)
+        except Exception:
+            return False
+        
+    def get_regions_with_sort_order(self):
+        sql = """
+            SELECT region_id, src_priority, dst_priority
+            FROM mp_data.a_wb_stock_transfer_wb_regions regions
+            WHERE src_priority is NOT NULL 
+            AND dst_priority is NOT NULL;
+        """
+        try:
+            result = self.db.execute_query(sql)
+            result_dict = defaultdict(dict)
+            for entry in result:
+                result_dict[entry['region_id']] = {'src_priority':entry['src_priority'],
+                                                    'dst_priority':entry['dst_priority']}
+
+            return result_dict
+        except Exception:
+            return False
+        
+    def get_warehouses_with_sort_order(self):
+        sql = """
+            SELECT office_id, src_priority, dst_priority
+            FROM mp_data.a_wb_stock_transfer_wb_offices offices
+            WHERE src_priority is NOT NULL 
+            AND dst_priority is NOT NULL;
+        """
+        try:
+            result = self.db.execute_query(sql)
+            result_dict = defaultdict(dict)
+            for entry in result:
+                result_dict[entry['office_id']] = {'src_priority':entry['src_priority'],
+                                                    'dst_priority':entry['dst_priority']}
+
+            return result_dict
+        except Exception:
+            return False
+        
+
+
+    def get_office_with_regions_map(self):
+        sql = """
+            SELECT office_id, region_id
+            FROM mp_data.a_wb_stock_transfer_wb_offices
+            WHERE src_priority is NOT NULL 
+            AND dst_priority is NOT NULL; 
+        """
+        try:
+            result = self.db.execute_query(sql)
+            result_dict = defaultdict(list)
+            for entry in result:
+                result_dict[entry['region_id']].append(entry['office_id'])
+            return result_dict
+        except Exception:
+            return False
+        
+
+    
+    

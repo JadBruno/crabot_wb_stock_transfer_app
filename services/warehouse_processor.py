@@ -78,9 +78,8 @@ class OneTimeTaskProcessor:
                 
                 try:
                     # Cмотрим остатки по всем складам
-                    product_stocks = self.fetch_stocks_by_nmid(
-                        nmid=product.product_wb_id,
-                        warehouses_in_task_list=available_warehouses_from_ids)
+                    product_stocks = self.fetch_stocks_by_nmid(nmid=product.product_wb_id,
+                                                               warehouses_in_task_list=available_warehouses_from_ids)
                     
                     self.logger.debug("Стоки для nmID=%s: %s", getattr(product, "product_wb_id", None), product_stocks)
 
