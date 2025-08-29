@@ -25,6 +25,8 @@ def main():
 
         regular_task_factory = RegularTaskFactory(db_controller=mysql_controller, 
                                                   api_controller=api_controller,
+                                                  cookie_jar=cookie_jar,
+                                                  headers=authorized_headers,
                                                   wb_content_api_key=wb_content_api_key,
                                                   logger=logger)
 

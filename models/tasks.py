@@ -1,12 +1,13 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Any
 from datetime import datetime
 
 class ProductSizeInfo(BaseModel):
     size_id: str
+    tech_size_id: int
     transfer_qty: int
     transfer_qty_left_virtual: int
-    transfer_qty_left_real:int
+    transfer_qty_left_real: int
     is_archived: Optional[bool] = False
 
 class ProductToTask(BaseModel):
@@ -15,11 +16,11 @@ class ProductToTask(BaseModel):
 
 class TaskWithProducts(BaseModel):
     task_id: int
-    warehouses_from_ids: Optional[Any]  # JSON field: could be list[int], dict, etc.
-    warehouses_to_ids: Optional[Any]
-    task_status: Optional[int]
-    is_archived: Optional[bool]
-    task_creation_date: Optional[datetime]
-    task_archiving_date: Optional[datetime]
-    last_change_date: Optional[datetime]
-    products: List[ProductToTask] = []
+    warehouses_from_ids: Optional[Any] = None   
+    warehouses_to_ids: Optional[Any] = None
+    task_status: Optional[int] = None
+    is_archived: Optional[bool] = None
+    task_creation_date: Optional[datetime] = None
+    task_archiving_date: Optional[datetime] = None
+    last_change_date: Optional[datetime] = None
+    products: List[ProductToTask] = Field(default_factory=list) 

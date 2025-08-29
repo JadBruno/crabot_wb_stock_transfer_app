@@ -206,17 +206,19 @@ class MySQLController():
 
 
     def insert_products_on_the_way(self,
-                                   items: list[tuple[int, int, int]]) -> bool:
+                                   items: list[tuple[int, int, int, int, int]]) -> bool:
 
         if not items:
             return False
 
         sql = """INSERT INTO mp_data.a_wb_stock_transfer_products_on_the_way(nmId, 
+                                                                            qty,
+                                                                            size_id,
                                                                             warehouse_from_id, 
                                                                             warehouse_to_id)
-                VALUES (%s, %s, %s)"""
+                VALUES (%s, %s, %s, %s, %s)"""
 
-        params = [(int(nm), int(w_from), int(w_to)) for nm, w_from, w_to in items]
+        params = [(int(nm),int(qty), int(size_id), int(w_from), int(w_to)) for nm, qty, size_id, w_from, w_to in items]
 
         try:
             self.db.execute_many(sql, params)
@@ -368,16 +370,27 @@ class MySQLController():
         
 
     def get_stocks_for_regular_tasks(self):
-        sql = """WITH stocks AS (
-                                SELECT DISTINCT wb_article_id, warehouse_id, size_id, qty, time_end
-                                FROM mp_data.a_wb_catalog_stocks
-                                ORDER BY wb_article_id, warehouse_id, size_id, time_end DESC)
+        sql = """WITH stocks AS (SELECT
+                                    wb_article_id,
+                                    warehouse_id,
+                                    size_id,
+                                    qty,
+                                    time_end,
+                    ROW_NUMBER() OVER (
+                    PARTITION BY wb_article_id, warehouse_id, size_id
+                    ORDER BY time_end DESC
+                    ) AS rn
+                FROM mp_data.a_wb_catalog_stocks
+                )
                 SELECT s.wb_article_id, s.warehouse_id, awis.size, s.size_id, s.time_end, s.qty, o.region_id
                 FROM stocks s
                 JOIN mp_data.a_wb_stock_transfer_wb_offices o
                 ON s.warehouse_id = o.office_id
-                LEFT JOIN mp_data.a_wb_izd_size awis ON awis.size_id = s.size_id
-                WHERE o.region_id IS NOT NULL;"""
+                LEFT JOIN mp_data.a_wb_izd_size awis
+                ON awis.size_id = s.size_id
+                WHERE o.region_id IS NOT NULL
+                AND s.rn = 1
+                AND s.time_end > NOW() - INTERVAL 24 hour;"""
         try:
             return self.db.execute_query(sql)
         except Exception:
@@ -437,6 +450,56 @@ class MySQLController():
         except Exception:
             return False
         
+
+
+    def get_stock_availability_data(self):
+        sql = """
+            SELECT wb_article_id, size_id, warehouse_id, time_beg, time_end
+            FROM mp_data.a_wb_catalog_stocks;"""
+        try:
+            result = self.db.execute_query(sql)
+            
+            return result
+        except Exception:
+            return False
+        
+
+    def get_size_map(self):
+        sql = """
+            SELECT size, size_id
+            FROM mp_data.a_wb_izd_size;"""
+        try:
+            result = self.db.execute_query(sql)
+            result_dict = {}
+            for entry in result:
+                result_dict[entry['size']] = entry['size_id']
+            return result_dict
+            
+        except Exception:
+            return False
+        
+
+
+    def get_size_sales_for_warehouse(self):
+        sql = """
+            SELECT
+                s.nmId,
+                s.techSize_id,
+                w.warehouse_wb_id AS office_id,
+                COUNT(*) AS order_count
+            FROM mp_data.a_wb_sales AS s
+            LEFT JOIN mp_data.a_wb_warehouseName AS w
+                ON s.warehouseName_id = w.warehouse_id
+            WHERE s.last_update_time > NOW() - INTERVAL 60 DAY
+                AND COALESCE(s.IsStorno, 0) = 0
+                AND COALESCE(w.warehouse_wb_id, 0) <> 0
+            GROUP BY s.nmId, s.techSize_id, w.warehouse_wb_id;"""
+        try:
+            result = self.db.execute_query(sql)
+            
+            return result
+        except Exception:
+            return False
 
     
     

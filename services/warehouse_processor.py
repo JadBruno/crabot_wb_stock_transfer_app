@@ -76,6 +76,8 @@ class OneTimeTaskProcessor:
             for product_idx, product in enumerate(getattr(task, "products", []) , start=1):
                 self.logger.info("Задание #%s: обработка продукта #%s (nmID=%s)", task_idx, product_idx, getattr(product, "product_wb_id", None))
                 
+                products_on_the_way_array = []
+
                 try:
                     # Cмотрим остатки по всем складам
                     product_stocks = self.fetch_stocks_by_nmid(nmid=product.product_wb_id,
@@ -161,6 +163,10 @@ class OneTimeTaskProcessor:
                                                 size.size_id, warehouse_entries[size.size_id]['count'])
                                             quota_dict[src_warehouse_id]['src'] -= warehouse_entries[size.size_id]['count']
                                             quota_dict[dst_warehouse_id]['dst'] -= warehouse_entries[size.size_id]['count']
+
+                                            product_on_the_way_entry = (product.product_wb_id, warehouse_entries[size.size_id]['count'], size.size_id, src_warehouse_id, dst_warehouse_id)
+                                            
+                                            products_on_the_way_array.append(product_on_the_way_entry)
                                             
                             except Exception as e:
                                 print(f"Ошибка при отправке запроса: {e}")
@@ -171,6 +177,7 @@ class OneTimeTaskProcessor:
                                                   src_warehouse_id, dst_warehouse_id, e)
 
             try:
+                self.db_controller.insert_products_on_the_way(items=products_on_the_way_array)
                 self.db_controller.update_transfer_qty_from_task(task)  # Тут в БД несем задания
                 self.logger.info("Задание #%s: обновлены количества трансферов в БД", task_idx)
             except Exception as e:

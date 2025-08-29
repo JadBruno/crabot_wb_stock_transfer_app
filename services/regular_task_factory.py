@@ -3,6 +3,7 @@ import time
 from typing import Any, Dict, Iterable, Union, Mapping, Sequence, Callable, Optional, Tuple, List
 from infrastructure.db.mysql.mysql_controller import MySQLController
 from infrastructure.api.sync_controller import SyncAPIController
+from requests.cookies import RequestsCookieJar
 import logging
 from utils.data_formating import ( _extract_min_target_map, _region_id_to_key, \
                                   _build_region_to_warehouses, _collect_destination_warehouses_for_plan, \
@@ -13,6 +14,8 @@ from itertools import islice
 import json
 from models.regular_tasks.regular_tasks import RegularTaskForSize, RegionStock
 import math
+import pandas as pd
+
 
 Row = Union[Mapping[str, Any], Sequence[Any]]
 
@@ -20,594 +23,23 @@ class RegularTaskFactory:
     def __init__(self,
                  db_controller: MySQLController,
                  api_controller: SyncAPIController,
+                 cookie_jar: RequestsCookieJar,
+                 headers: Dict,
                  wb_content_api_key: str,
                  logger):
         self.db_controller = db_controller
         self.api_controller = api_controller
+        self.cookie_jar = cookie_jar
+        self.headers = headers
         self.wb_content_api_key = wb_content_api_key
         self.logger = logger
-
-
-    # def run(self):
-
-    #     # Получили продукты с их текущими стоками
-    #     all_product_entries = self.db_controller.get_all_products_with_stocks()
-
-    #     # Сделали коллекцию всех 
-
-    #     product_collection = self.create_product_collection(all_product_entries=all_product_entries)
-
-    #     transfers = self.db_controller.get_products_transfers_on_the_way()
-    #     if transfers:
-    #         self.merge_transfers_on_the_way(product_collection, transfers)
-        
-        
-    #     a = 1
-
-    # def create_product_collection(self, all_product_entries):
-
-    #     # словарь с артикулами, внутри каждого артикула своя сущность для артикула, в ней указан wb_article_id и коллекция с размерами артикула(size_id) {1:..., 2: ...}
-
-    #     # у размера есть артикул, айди размера, size_name (колонка size), общее количество размера на всех складах, количество по складам (реализовано в словарях)
-
-    #     products: Dict[int, Dict[str, Any]] = {}
-
-    #     for row in all_product_entries:
-    #         # поддержка dict и tuple/list
-    #         if isinstance(row, Mapping):
-    #             wb_article_id = row.get("wb_article_id")
-    #             warehouse_id  = row.get("warehouse_id")
-    #             size_id       = row.get("size_id")
-    #             qty           = row.get("qty")
-    #             size_name     = row.get("size")
-    #         else:
-    #             wb_article_id = row[0]
-    #             warehouse_id  = row[1]
-    #             size_id       = row[2]
-    #             # row[3] = time_end (не используем)
-    #             qty           = row[4]
-    #             size_name     = row[5]
-
-    #         # простая нормализация
-    #         if wb_article_id is None or warehouse_id is None or size_id is None:
-    #             continue
-    #         try:
-    #             wb_article_id = int(wb_article_id)
-    #             warehouse_id  = int(warehouse_id)
-    #             size_id       = int(size_id)
-    #         except ValueError:
-    #             continue
-    #         qty = int(qty) if qty is not None else 0
-    #         size_name = str(size_name) if size_name is not None else ""
-
-    #         # если артикула ещё нет
-    #         if wb_article_id not in products:
-    #             products[wb_article_id] = {
-    #                 "wb_article_id": wb_article_id,
-    #                 "total_qty": 0,
-    #                 "sizes": {}
-    #             }
-
-    #         art = products[wb_article_id]
-
-    #         # если размера ещё нет
-    #         if size_id not in art["sizes"]:
-    #             art["sizes"][size_id] = {
-    #                 "wb_article_id": wb_article_id,
-    #                 "size_id": size_id,
-    #                 "size_name": size_name,
-    #                 "total_qty": 0,
-    #                 "warehouses": {}
-    #             }
-
-    #         size_node = art["sizes"][size_id]
-
-    #         # дозаполняем name если раньше было пусто
-    #         if not size_node["size_name"] and size_name:
-    #             size_node["size_name"] = size_name
-
-    #         # склады
-    #         if warehouse_id not in size_node["warehouses"]:
-    #             size_node["warehouses"][warehouse_id] = 0
-    #         size_node["warehouses"][warehouse_id] += qty
-
-    #         # агрегаты
-    #         size_node["total_qty"] += qty
-    #         art["total_qty"] += qty
-
-    #     return products
-    
-    # def merge_transfers_on_the_way(self,
-    #                                 products_collection: Dict[int, Dict[str, Any]],
-    #                                 transfers_rows: Iterable[Row]) -> None:
-    #     touched_articles = set()
-
-    #     for r in transfers_rows:
-    #         # dict или tuple/list: (wb_article_id, warehouse_from_id, warehouse_to_id, size_id, qty, created_at)
-    #         if isinstance(r, Mapping):
-    #             wb_article_id   = r.get("wb_article_id") or r.get("nmId")
-    #             warehouse_to_id = r.get("warehouse_to_id")
-    #             size_id         = r.get("size_id")
-    #             qty             = r.get("qty")
-    #         else:
-    #             if len(r) < 6:
-    #                 continue
-    #             wb_article_id, _, warehouse_to_id, size_id, qty, _ = r[:6]
-
-    #         # приведение и валидация
-    #         try:
-    #             wb_article_id   = int(wb_article_id)
-    #             size_id         = int(size_id)
-    #             warehouse_to_id = int(warehouse_to_id)
-    #             qty             = int(qty) if qty is not None else 0
-    #         except (TypeError, ValueError):
-    #             continue
-    #         if qty == 0:
-    #             continue
-
-    #         # --- артикул ---
-    #         if wb_article_id not in products_collection:
-    #             products_collection[wb_article_id] = {
-    #                 "wb_article_id": wb_article_id,
-    #                 "total_qty": 0,
-    #                 "sizes": {}
-    #             }
-    #         art = products_collection[wb_article_id]
-
-    #         # --- размер ---
-    #         if size_id not in art["sizes"]:
-    #             art["sizes"][size_id] = {
-    #                 "wb_article_id": wb_article_id,
-    #                 "size_id": size_id,
-    #                 "size_name": "",
-    #                 "total_qty": 0,
-    #                 "warehouses": {}
-    #             }
-    #         size_node = art["sizes"][size_id]
-
-    #         # --- склад ---
-    #         if warehouse_to_id not in size_node["warehouses"]:
-    #             size_node["warehouses"][warehouse_to_id] = 0
-    #         size_node["warehouses"][warehouse_to_id] += qty
-
-    #         # итоги по размеру
-    #         size_node["total_qty"] += qty
-
-    #         touched_articles.add(wb_article_id)
-
-    #     # финальный пересчёт total по артикулу — как сумма total_qty всех размеров
-    #     for art_id in touched_articles:
-    #         art = products_collection.get(art_id)
-    #         if not art:
-    #             continue
-    #         total = 0
-    #         for size_node in art["sizes"].values():
-    #             q = size_node.get("total_qty", 0)
-    #             try:
-    #                 total += int(q)
-    #             except (TypeError, ValueError):
-    #                 pass
-    #         art["total_qty"] = total
-
-
-    # def run2(self):
-            
-    #         # берем настройки задания
-    #         task_row  = self.db_controller.get_current_regular_task()
-
-    #         # теперь берём стоки с регионами
-    #         all_product_entries = self.db_controller.get_all_products_with_stocks_with_region()
-
-    #         product_collection = self.create_product_collection_with_regions(all_product_entries=all_product_entries)
-
-    #         transfers = self.db_controller.get_products_transfers_on_the_way_with_region()
-    #         if transfers:
-    #             self.merge_transfers_on_the_way_with_region(
-    #                 products_collection=product_collection,
-    #                 transfers_rows=transfers)
-
-    #         wh_rows = self.db_controller.get_warehouses_regions_map()
-    #         region_to_wh = _build_region_to_warehouses(wh_rows if wh_rows else [])
-
-    #         tasks: List[TaskWithProducts] = []
-    #         plans_by_article: Dict[int, Dict[int, Dict[int, int]]] = {}  # wb -> size -> region -> qty
-
-    #         auth_header = {'Authorization': f'{self.wb_content_api_key}'}
-
-    #         warehouse_map_unsorted = self.db_controller.get_real_warehouses_regions_map()
-
-    #         warehouse_map_sorted = self.sort_real_warehouse_map(warehouse_entries_from_db=warehouse_map_unsorted)
-
-    #         all_skus_list = list(product_collection.keys())
-
-    #         barcode_info_data = self.get_all_barcodes(auth_header=auth_header)
-
-    #         all_barcodes = self.create_barcode_list(barcode_entries=barcode_info_data)
-
-    #         for region_id, warehouse_id_list in warehouse_map_sorted.items():
-
-    #             for warehouse_id in warehouse_id_list:
-    
-    #                 for sku_batch in self.batched(all_skus_list, 1000):
-
-    #                     request_body = {'skus':sku_batch}
-    #                     current_stock_data = self.api_controller.request(method='POST',
-    #                                                                         headers=auth_header, 
-    #                                                                         json=request_body,
-    #                                                                         base_url='https://marketplace-api.wildberries.ru',
-    #                                                                         endpoint=f'/api/v3/stocks/{warehouse_id}')
-
-    #                     a = 1
-
-
-    #         # if task_row:
-    #         #     for wb_article_id in product_collection.keys():
-    #         #         task, size_plan = self.build_task_for_article_to_minimums(
-    #         #             task_row=task_row,
-    #         #             product_collection=product_collection,
-    #         #             wb_article_id=wb_article_id,
-    #         #             region_to_wh=region_to_wh)
-                    
-    #         #         if task:
-    #         #             tasks.append(task)
-    #         #             plans_by_article[int(wb_article_id)] = size_plan
-
-    #         # return {
-    #         #     "product_collection": product_collection,
-    #         #     "tasks": tasks,
-    #         #     "plans_by_article": plans_by_article}
-            
-
-    # def create_product_collection_with_regions(self, all_product_entries: Iterable[Row]) -> Dict[int, Dict[str, Any]]:
-    #     products: Dict[int, Dict[str, Any]] = {}
-    #     for row in all_product_entries:
-    #         if isinstance(row, Mapping):
-    #             wb_article_id = row.get("wb_article_id") or row.get("nmId")
-    #             warehouse_id  = row.get("warehouse_id")
-    #             size_id = row.get("size_id")
-    #             qty = row.get("qty")
-    #             size_name = row.get("size")
-    #             region_id = row.get("region_id") or row.get("region")
-    #         else:
-    #             continue
-
-    #         try:
-    #             wb_article_id = int(wb_article_id)
-    #             warehouse_id  = int(warehouse_id)
-    #             size_id       = int(size_id)
-    #         except (TypeError, ValueError):
-    #             continue
-
-    #         if region_id is None:
-    #             continue
-    #         try:
-    #             region_id = int(region_id)
-    #         except (TypeError, ValueError):
-    #             continue
-
-    #         qty = int(qty) if qty is not None else 0
-    #         size_name = str(size_name) if size_name is not None else ""
-
-    #         art = products.setdefault(wb_article_id, {"wb_article_id": wb_article_id, "total_qty": 0, "sizes": {}})
-    #         size_node = art["sizes"].setdefault(size_id, {
-    #             "wb_article_id": wb_article_id, "size_id": size_id, "size_name": size_name or "",
-    #             "total_qty": 0, "regions": {}
-    #         })
-    #         if not size_node["size_name"] and size_name:
-    #             size_node["size_name"] = size_name
-
-    #         region_node = size_node["regions"].setdefault(region_id, {"region_id": region_id, "total_qty": 0, "warehouses": {}})
-    #         region_node["warehouses"][warehouse_id] = region_node["warehouses"].get(warehouse_id, 0) + qty
-
-    #         region_node["total_qty"] += qty
-    #         size_node["total_qty"] += qty
-    #         art["total_qty"] += qty
-
-    #     return products
-
-    # def merge_transfers_on_the_way_with_region(
-    #     self,
-    #     products_collection: Dict[int, Dict[str, Any]],
-    #     transfers_rows: Iterable[Row]) -> None:
-
-    #     for r in transfers_rows:
-    #         if isinstance(r, Mapping):
-    #             wb_article_id   = r.get("wb_article_id") or r.get("nmId")
-    #             warehouse_to_id = r.get("warehouse_to_id")
-    #             size_id = r.get("size_id")
-    #             qty = r.get("qty")
-    #             region_id = r.get("region_id")  # уже приходит из LEFT JOIN
-    #         else:
-    #             if len(r) < 7:
-    #                 continue
-    #             wb_article_id, _, warehouse_to_id, size_id, qty, region_id, _ = r[:7]
-
-    #         # приведение и фильтры
-    #         try:
-    #             wb_article_id   = int(wb_article_id)
-    #             warehouse_to_id = int(warehouse_to_id)
-    #             size_id         = int(size_id)
-    #             qty             = int(qty) if qty is not None else 0
-    #         except (TypeError, ValueError):
-    #             continue
-    #         if qty == 0:
-    #             continue
-
-    #         if region_id is None:
-    #             # регион обязателен
-    #             continue
-    #         try:
-    #             region_id = int(region_id)
-    #         except (TypeError, ValueError):
-    #             continue
-
-    #         # артикул 
-    #         art = products_collection.setdefault(wb_article_id, {
-    #             "wb_article_id": wb_article_id,
-    #             "total_qty": 0,
-    #             "sizes": {}
-    #         })
-
-    #         # размер
-    #         size_node = art["sizes"].setdefault(size_id, {
-    #             "wb_article_id": wb_article_id,
-    #             "size_id": size_id,
-    #             "size_name": "",
-    #             "total_qty": 0,
-    #             "regions": {}
-    #         })
-
-    #         # регион 
-    #         region_node = size_node["regions"].setdefault(region_id, {
-    #             "region_id": region_id,
-    #             "total_qty": 0,
-    #             "warehouses": {}
-    #         })
-
-    #         # склад назначения 
-    #         region_node["warehouses"][warehouse_to_id] = region_node["warehouses"].get(warehouse_to_id, 0) + qty
-
-    #         # агрегаты
-    #         region_node["total_qty"] += qty
-    #         size_node["total_qty"]   += qty
-    #         art["total_qty"]         += qty
-
-
-    # def plan_needed_qty_by_size_regions(self,
-    #     product_collection: Dict[int, Dict[str, Any]],
-    #     wb_article_id: int,
-    #     min_target_map: Dict[str, Dict[str, float]]) -> Tuple[Dict[int, Dict[int, int]], Dict[int, int]]:
-
-    #     art = product_collection.get(wb_article_id)
-    #     if not art:
-    #         return {}, {}
-
-    #     size_plan_by_region: Dict[int, Dict[int, int]] = {}
-    #     size_totals: Dict[int, int] = {}
-
-    #     for size_id, size_node in art["sizes"].items():
-    #         total_qty_size = int(size_node.get("total_qty", 0) or 0)
-    #         if total_qty_size <= 0:
-    #             continue
-
-    #         # считаем потребность в каждом регионе
-    #         plan_for_size: Dict[int, int] = {}
-    #         for region_id, region_node in size_node.get("regions", {}).items():
-    #             current_region_qty = int(region_node.get("total_qty", 0) or 0)
-    #             region_key = _region_id_to_key(region_id)
-    #             min_rate = float(min_target_map.get(region_key, {}).get("min", 0.0))
-    #             min_required = int(math.ceil(min_rate * total_qty_size))
-    #             need = max(0, min_required - current_region_qty)
-    #             if need > 0:
-    #                 plan_for_size[int(region_id)] = need
-
-    #         if plan_for_size:
-    #             size_plan_by_region[int(size_id)] = plan_for_size
-    #             size_totals[int(size_id)] = sum(plan_for_size.values())
-
-    #     return size_plan_by_region, size_totals
-
-    # # ===== сборка TaskWithProducts =====
-
-    # def build_task_for_article_to_minimums(
-    #     self,
-    #     task_row: Mapping[str, Any],
-    #     product_collection: Dict[int, Dict[str, Any]],
-    #     wb_article_id: int,
-    #     region_to_wh: Optional[Dict[int, List[int]]] = None) -> Tuple[Optional[TaskWithProducts], Dict[int, Dict[int, int]]]:
-        
-    #     min_target_map = _extract_min_target_map(task_row)
-    #     size_plan_by_region, size_totals = self.plan_needed_qty_by_size_regions(
-    #         product_collection, wb_article_id, min_target_map
-    #     )
-    #     if not size_totals:
-    #         return None, {}
-
-    #     # --- сформируем назначения (to) по регионам, где есть потребность
-    #     warehouses_to_ids: Optional[Dict[int, List[int]]] = None
-    #     if region_to_wh:
-    #         warehouses_to_ids = _collect_destination_warehouses_for_plan(size_plan_by_region, region_to_wh)
-
-    #     # --- сформируем источники (from) где реально есть остатки по артикулу
-    #     warehouses_from_ids: Optional[Dict[int, List[int]]] = _collect_source_warehouses_for_article(
-    #         product_collection=product_collection,
-    #         wb_article_id=int(wb_article_id),
-    #     )
-
-    #     # --- сформируем DTO продуктов
-    #     products: List[ProductToTask] = []
-    #     sizes_dtos: List[ProductSizeInfo] = []
-    #     for size_id, total_need in size_totals.items():
-    #         sizes_dtos.append(ProductSizeInfo(
-    #             size_id=str(size_id),
-    #             transfer_qty=total_need,
-    #             transfer_qty_left_virtual=total_need,
-    #             transfer_qty_left_real=total_need,
-    #             is_archived=False
-    #         ))
-    #     products.append(ProductToTask(product_wb_id=int(wb_article_id), sizes=sizes_dtos))
-
-    #     task = TaskWithProducts(
-    #         task_id=int(task_row.get("task_id")),
-    #         warehouses_from_ids=warehouses_from_ids,  
-    #         warehouses_to_ids=warehouses_to_ids,     
-    #         task_status=None,
-    #         is_archived=False,
-    #         task_creation_date=task_row.get("task_creation_date"),
-    #         task_archiving_date=task_row.get("task_archiving_date"),
-    #         last_change_date=task_row.get("last_change_date"),
-    #         products=products
-    #     )
-    #     return task, size_plan_by_region
-    
-
-    # def sort_real_warehouse_map(self, warehouse_entries_from_db):
-
-    #     warehouse_with_regions_dict = defaultdict(list)
-        
-    #     for entry in warehouse_entries_from_db:
-
-    #         wh_id = entry['warehouse_id']
-    #         region_id = entry['region_id']
-
-    #         warehouse_with_regions_dict[region_id].append(wh_id)
-
-    #     return warehouse_with_regions_dict
-    
-    # @staticmethod
-    # def batched(iterable, n):
-    #     it = iter(iterable)
-    #     while batch := list(islice(it, n)):
-    #         yield batch
-
-    # def get_all_barcodes(self, auth_header: dict, all_skus_list: list) -> dict:
-
-    #     sizes_with_stocks_dict = defaultdict(dict)
-    #     barcodes_with_techsizes_and_nmid_dict = defaultdict(dict)
-
-    #     cursor = {"limit": 100}
-
-    #     while True:
-                
-    #             request_body ={"settings": {"cursor": cursor,
-    #                                     "filter": {
-    #                                     "withPhoto": -1}}}
-
-    #             product_info_entry = self.api_controller.request(method='POST',
-    #                                                             headers=auth_header, 
-    #                                                             json=request_body,
-    #                                                             base_url='https://content-api.wildberries.ru',
-    #                                                             endpoint=f'/content/v2/get/cards/list')
-
-    #             if product_info_entry.status_code == 200:
-                
-    #                 product_info_entry_json = product_info_entry.json()
-                
-    #                 cursor = product_info_entry_json['cursor']
-
-    #                 cursor['limit'] = 100
-                    
-    #                 for card in product_info_entry_json['cards']:
-
-    #                     sizes_with_stocks_dict[card['nmID']] = card['sizes']
-
-    #                     for size_entry in card['sizes']:
-    #                         for sku in size_entry['skus']:
-    #                             barcodes_with_techsizes_and_nmid_dict[sku] = {'wb_article_id':card['nmID'],
-    #                                                                           'techSize':size_entry['techSize'],
-    #                                                                           'chrtID': size_entry['chrtID']}
-
-    #                 x = 1
-
-    #                 if cursor['total'] < cursor['limit']:
-
-    #                     return barcodes_with_techsizes_and_nmid_dict
-                    
-                    
-    #             else:
-    #                 return barcodes_with_techsizes_and_nmid_dict
-
-    #     a = 1
-
-    # @staticmethod
-    # def create_barcode_list(barcode_entries):
-        
-    #     all_barcodes = []
-    #     for nmId_entry in barcode_entries.values():
-            
-    #         skus = [sku for size_entry in nmId_entry for sku in size_entry['skus']]
-
-    #         all_barcodes += skus
-
-    #     all_barcodes = list(set(all_barcodes))
-
-    #     return all_barcodes
-    
-
-    # def run3(self):
-            
-    #         # берем настройки задания
-    #         task_row  = self.db_controller.get_current_regular_task()
-
-    #         # теперь берём стоки с регионами
-    #         all_product_entries = self.db_controller.get_all_products_with_stocks_with_region()
-
-    #         product_collection = self.create_product_collection_with_regions(all_product_entries=all_product_entries)
-
-    #         transfers = self.db_controller.get_products_transfers_on_the_way_with_region()
-    #         if transfers:
-    #             self.merge_transfers_on_the_way_with_region(
-    #                 products_collection=product_collection,
-    #                 transfers_rows=transfers)
-
-    #         wh_rows = self.db_controller.get_warehouses_regions_map()
-    #         region_to_wh = _build_region_to_warehouses(wh_rows if wh_rows else [])
-
-    #         tasks: List[TaskWithProducts] = []
-    #         plans_by_article: Dict[int, Dict[int, Dict[int, int]]] = {}  # wb -> size -> region -> qty
-
-    #         auth_header = {'Authorization': f'{self.wb_content_api_key}'}
-
-    #         warehouse_map_unsorted = self.db_controller.get_real_warehouses_regions_map()
-
-    #         warehouse_map_sorted = self.sort_real_warehouse_map(warehouse_entries_from_db=warehouse_map_unsorted)
-
-    #         all_skus_list = list(product_collection.keys())
-
-    #         barcode_info_data = self.get_all_barcodes(auth_header=auth_header, all_skus_list=all_skus_list)
-
-    #         all_barcodes = tuple(set(barcode_info_data.keys()))
-
-    #         all_stocks_by_barcode_dict = defaultdict(list)
-
-    #         for region_id, warehouse_id_list in warehouse_map_sorted.items():
-
-    #             for warehouse_id in warehouse_id_list:
-    
-    #                 for sku_batch in self.batched(all_barcodes, 1000):
-
-    #                     request_body = {'skus':sku_batch}
-    #                     current_stock_data = self.api_controller.request(method='POST',
-    #                                                                         headers=auth_header, 
-    #                                                                         json=request_body,
-    #                                                                         base_url='https://marketplace-api.wildberries.ru',
-    #                                                                         endpoint=f'/api/v3/stocks/{warehouse_id}')
-
-    #                     for entry in current_stock_data:
-
-    #                         all_stocks_by_barcode_dict[entry['sku']].append({
-    #                             'region_id':region_id,
-    #                             'warehouse_id':warehouse_id,
-    #                             'amount':entry['amount']
-    #                         })
-
-
-
-    #                     a = 1
-
+        self.MIN_AVAILABILITY_DAY_COUNT_FOR_TRANSFER = 14
 
 
     def run4(self):
+            # карта размеров айди - тег
+            size_map = self.db_controller.get_size_map()
+
             # словари приоритетов в регионах
             region_priority_dict = self.db_controller.get_regions_with_sort_order()
 
@@ -615,13 +47,24 @@ class RegularTaskFactory:
 
             warehouses_available_to_stock_transfer = self.db_controller.get_office_with_regions_map()
 
+            stock_availability_data = self.db_controller.get_stock_availability_data()
+
+            stock_availability_df = self.build_article_days(stock_time_data=stock_availability_data, last_n_days=30)
+
+            sales_data = self.db_controller.get_size_sales_for_warehouse()
+
+            orders_index = {(row["nmId"], row["techSize_id"], row["office_id"]): row["order_count"]
+                            for row in sales_data}
+
             # берем настройки задания
             task_row  = self.db_controller.get_current_regular_task()
             # теперь берём стоки с регионами
             all_product_entries = self.db_controller.get_stocks_for_regular_tasks()
             # юху
-            product_collection = self.create_product_collection_with_regions(all_product_entries=all_product_entries)
-
+            product_collection = self.create_product_collection_with_regions(all_product_entries=all_product_entries,
+                                                                                warehouses_available_to_stock_transfer=warehouses_available_to_stock_transfer,
+                                                                                availability_index=stock_availability_df,
+                                                                                orders_index=orders_index)
             # добавил продукты в пути
 
             transfers = self.db_controller.get_products_transfers_on_the_way_with_region()
@@ -629,18 +72,158 @@ class RegularTaskFactory:
                 self.merge_transfers_on_the_way_with_region(
                     products_collection=product_collection,
                     transfers_rows=transfers)
+                
+            # max_product_id = max(product_collection, key=lambda k: product_collection[k]['total_qty'])
+
+            office_id_list = list(warehouse_priority_dict.keys())
+            
+            # quota_dict = dict(self.get_warehouse_quotas(office_id_list))
+            quota_dict = {507: {'src': 39835, 'dst': 0}, 117986: {'src': 46346, 'dst': 354353}, 120762: {'src': 0, 'dst': 74184}, 2737: {'src': 24709, 'dst': 0}, 130744: {'src': 0, 'dst': 459945}, 686: {'src': 24992, 'dst': 0}, 1733: {'src': 24340, 'dst': 0}, 206348: {'src': 10000, 'dst': 72554}, 208277: {'src': 0, 'dst': 84267}, 301760: {'src': 0, 'dst': 93503}, 301809: {'src': 0, 'dst': 493275}, 301983: {'src': 0, 'dst': 3355}}
+
+            self.remove_unavailable_warehouses_from_current_session(quota_dict=quota_dict,
+                                                                        region_priority_dict=region_priority_dict,
+                                                                        warehouses_available_to_stock_transfer=warehouses_available_to_stock_transfer,
+                                                                        warehouse_priority_dict=warehouse_priority_dict)
+
 
             tasks_for_product = self.create_task_for_product(product_collection=product_collection, 
                                                              task_row=task_row,
                                                              region_priority_dict=region_priority_dict,
                                                              warehouse_priority_dict=warehouse_priority_dict,
-                                                             warehouses_available_to_stock_transfer=warehouses_available_to_stock_transfer)  
+                                                             warehouses_available_to_stock_transfer=warehouses_available_to_stock_transfer,
+                                                             quota_dict=quota_dict,
+                                                             size_map=size_map)  
+
 
             a = 1
 
+    def get_warehouse_quotas(self, office_id_list):
+        self.logger.debug("Старт get_warehouse_quotas() для офисов: %s", office_id_list)
+        quota_dict = defaultdict(dict)
+        modes = ["src", "dst"]
+
+        for office_id in office_id_list:
+            for mode in modes:
+                try:
+                    time.sleep(0.5)
+                    self.api_controller.request(
+                        base_url="https://seller-weekly-report.wildberries.ru",
+                        method="OPTIONS",
+                        endpoint="/ns/shifts/analytics-back/api/v1/quota",
+                        params={"officeID": office_id, "type": mode},
+                        cookies=self.cookie_jar,
+                        headers=self.headers)
+                        
+                    self.logger.debug("OPTIONS квоты отправлен office_id=%s mode=%s", office_id, mode)
+
+                    time.sleep(0.5)
+                    response = self.api_controller.request(
+                        base_url="https://seller-weekly-report.wildberries.ru",
+                        method="GET",
+                        endpoint="/ns/shifts/analytics-back/api/v1/quota",
+                        params={"officeID": office_id, "type": mode},
+                        cookies=self.cookie_jar,
+                        headers=self.headers)
+                    
+                    self.logger.debug("GET квоты получен office_id=%s mode=%s status=%s",
+                                      office_id, mode, getattr(response, "status_code", None))
+
+                    response_json = response.json()
+                    response_data = response_json.get("data", {})
+                    response_quota = response_data.get("quota", 0)
+                    quota_dict[office_id][mode] = response_quota
+                    self.logger.debug("Квота office_id=%s mode=%s = %s", office_id, mode, response_quota)
+                except Exception as e:
+                    self.logger.exception("Ошибка получения квоты office_id=%s mode=%s: %s", office_id, mode, e)
+
+        return quota_dict
 
 
-    def create_task_for_product(self, product_collection, task_row, region_priority_dict, warehouse_priority_dict, warehouses_available_to_stock_transfer ):
+
+    def build_article_days(self,
+                           stock_time_data: Union[Sequence[Mapping], Sequence[tuple]],
+                            last_n_days: Optional[int] = 30) -> Dict[Tuple[int, int, int], Dict[str, Any]]:
+
+        now = pd.Timestamp.now()
+
+        # в DataFrame (для удобства дат и фильтра)
+        if isinstance(stock_time_data, list) and stock_time_data:
+            first = stock_time_data[0]
+            if isinstance(first, dict):
+                df = pd.DataFrame(stock_time_data)
+            else:
+                df = pd.DataFrame(
+                    stock_time_data,
+                    columns=["wb_article_id", "size_id", "warehouse_id", "time_beg", "time_end"]
+                )
+        else:
+            df = pd.DataFrame(columns=["wb_article_id","size_id","warehouse_id","time_beg","time_end"])
+
+        # к datetime
+        df["time_beg"] = pd.to_datetime(df["time_beg"])
+        df["time_end"] = pd.to_datetime(df["time_end"])
+
+        # фильтр последних N дней (если нужен)
+        if last_n_days is not None:
+            cutoff = now - pd.Timedelta(days=last_n_days)
+            df = df[df["time_end"] >= cutoff]
+
+        # строим индекс
+        avail_index: Dict[Tuple[int, int, int], Dict[str, Any]] = {}
+        for _, row in df.iterrows():
+            key = (int(row["wb_article_id"]), int(row["size_id"]), int(row["warehouse_id"]))
+            rng = pd.date_range(row["time_beg"].normalize(),
+                                row["time_end"].normalize(),
+                                freq="D")
+            days_set = set(rng.date)
+
+            # если по ключу уже были интервалы — объединяем (на случай пересечений)
+            if key in avail_index:
+                avail_index[key]["days"].update(days_set)
+                avail_index[key]["days_count"] = len(avail_index[key]["days"])
+            else:
+                avail_index[key] = {"days": days_set, "days_count": len(days_set)}
+
+        return avail_index
+
+
+    def remove_unavailable_warehouses_from_current_session(self, quota_dict,
+                                                           region_priority_dict,
+                                                           warehouses_available_to_stock_transfer,
+                                                           warehouse_priority_dict):
+        
+        for wid, pr in warehouse_priority_dict.items():
+            q = quota_dict.get(wid, {})
+            if q.get("src", None) == 0:
+                pr["src_priority"] = None
+            if q.get("dst", None) == 0:
+                pr["dst_priority"] = None
+
+        for region_id, wids in list(warehouses_available_to_stock_transfer.items()):
+            kept = []
+            src_sum = 0
+            dst_sum = 0
+            for wid in wids:
+                q = quota_dict.get(wid, {"src": 0, "dst": 0})
+                if not (q.get("src", 0) == 0 and q.get("dst", 0) == 0):
+                    kept.append(wid)
+                src_sum += q.get("src", 0)
+                dst_sum += q.get("dst", 0)
+
+            warehouses_available_to_stock_transfer[region_id] = kept
+
+            if src_sum == 0 and dst_sum == 0 and region_id in region_priority_dict:
+                region_priority_dict[region_id]["src_priority"] = None
+                region_priority_dict[region_id]["dst_priority"] = None
+
+
+    def create_task_for_product(self, product_collection, 
+                                task_row, 
+                                region_priority_dict, 
+                                warehouse_priority_dict, 
+                                warehouses_available_to_stock_transfer,
+                                quota_dict,
+                                size_map):
         tasks = []
 
         region_src_sort_order = self.sort_destinations_by_key(region_priority_dict, key='src_priority')
@@ -657,10 +240,14 @@ class RegularTaskFactory:
 
             try:
                 for size_id, size_data in product["sizes"].items():
+
                     task_for_size = RegularTaskForSize(
                         nmId=product["wb_article_id"],
                         size=size_data["size_name"],
-                        total_stock_for_product=size_data["total_qty"])
+                        tech_size_id=size_id,
+                        total_stock_for_product=size_data["total_qty"],
+                        availability_days_by_warehouse=size_data['availability_days_by_warehouse'],
+                        orders_by_warehouse=size_data['orders_by_warehouse'])
 
                     # Заполняем регионы
                     for region_id, region_data in size_data["regions"].items():
@@ -697,15 +284,59 @@ class RegularTaskFactory:
                             and region_obj.amount_to_deliver > 0)
                         
                     for dst_region_id in region_dst_sort_order:
+
                         dst_region_data_entry = task_for_size.region_data[dst_region_id]
                         amount_to_add = dst_region_data_entry.amount_to_deliver
 
                         if dst_region_data_entry.is_below_min == True:
                             for src_region_id in region_src_sort_order:
+                                
+                                if src_region_id == dst_region_id:
+                                        continue
+                                
                                 if amount_to_add > 0:
+
+                                    
                                     current_src_entry_warehouse_sort = [office_id for office_id in warehouse_src_sort_order if office_id in warehouses_available_to_stock_transfer[src_region_id]]
 
                                     src_region_data_entry = task_for_size.region_data[src_region_id]
+
+                                    warehouse_for_region_list = [warehouse_id for warehouse_id in warehouses_available_to_stock_transfer[src_region_id] if warehouse_priority_dict.get(warehouse_id) is not None]
+
+                                    available_donor_status = True
+
+                                    if product['wb_article_id'] == 9641815:
+
+                                        a = 1
+
+                                    # for warehouse_id in warehouse_for_region_list: 
+                                        
+                                    #     days_available = task_for_size.availability_days_by_warehouse.get(warehouse_id, None) 
+                                    #     orders_by_warehouse = task_for_size.orders_by_warehouse.get(warehouse_id, None) 
+
+                                    #     if days_available is None or days_available < self.MIN_AVAILABILITY_DAY_COUNT_FOR_TRANSFER: 
+                                    #         available_donor_status = False 
+                                    #     else: available_donor_status = True 
+                                        
+                                    #     if orders_by_warehouse is None or src_region_data_entry.stock_by_region_after - orders_by_warehouse < 0: 
+                                    #         available_donor_status = False 
+                                    #     else: available_donor_status = True 
+                                        
+                                    #     if available_donor_status == False: 
+                                    #         continue
+
+                                    has_valid_donor = False # эту штуку написал гпт, тут проверяем наличие на складе и количество продаж
+                                    for warehouse_id in warehouse_for_region_list:
+                                        days_ok = (task_for_size.availability_days_by_warehouse.get(warehouse_id, 0)
+                                                >= self.MIN_AVAILABILITY_DAY_COUNT_FOR_TRANSFER)
+                                        orders = task_for_size.orders_by_warehouse.get(warehouse_id, 0)
+                                        orders_ok = (orders is not None and
+                                                    task_for_size.region_data[src_region_id].stock_by_region_after - orders >= 0) # TODO нужно сюда добавить переменную и рассчитать, сколько можно увезти
+                                        if days_ok and orders_ok:
+                                            has_valid_donor = True
+                                            break
+                                    if not has_valid_donor:
+                                        continue
 
                                     total_stock_for_region_in_allowed_warehouses = sum([qty for stock_entry in src_region_data_entry.stock_by_warehouse for office_id, qty in stock_entry.items() if office_id in current_src_entry_warehouse_sort])
                                     
@@ -713,9 +344,9 @@ class RegularTaskFactory:
                                     
                                     if transferrable_amount > 0:
 
-                                        amount_available_to_be_set = min(total_stock_for_region_in_allowed_warehouses, transferrable_amount)
+                                        amount_available_to_be_sent = min(total_stock_for_region_in_allowed_warehouses, transferrable_amount)
                                         
-                                        amount_to_be_sent = min(amount_available_to_be_set, amount_to_add)
+                                        amount_to_be_sent = min(amount_available_to_be_sent, amount_to_add)
 
                                         if amount_to_be_sent > 0:
                                             
@@ -743,30 +374,29 @@ class RegularTaskFactory:
                                                                 source_warehouse_used_in_transfer.append(office_id)
 
 
-                        a = 1
-
-
-
-                                
-                            
-
-
-
-                    
-
-
-                    
-                        
-
-                    tasks.append(task_for_size)
+                                                            task_for_size.to_process = True
+                    if getattr(task_for_size, 'to_process', False):
+                        tasks.append(task_for_size)
 
             except Exception as e:
                 print(f"Ошибка при обработке продукта {product.get('wb_article_id')}: {e}")
 
+            current_tasks_for_product = tasks
+
+            self.create_stock_transfer_task_for_product(current_tasks_for_product, 
+                                                        warehouses_available_to_stock_transfer, 
+                                                        quota_dict=quota_dict,
+                                                        size_map=size_map) 
+
+            a = 1
+
         return tasks
     
 
-    def create_product_collection_with_regions(self, all_product_entries: Iterable[Row]) -> Dict[int, Dict[str, Any]]:
+    def create_product_collection_with_regions(self, all_product_entries: Iterable[Row],
+                                               warehouses_available_to_stock_transfer: Dict,
+                                               availability_index: Optional[Dict[Tuple[int, int, int], Dict[str, Any]]] = None,
+                                               orders_index: Optional[Dict[Tuple[int, int, int], int]] = None) -> Dict[int, Dict[str, Any]]:
         products: Dict[int, Dict[str, Any]] = {}
         for row in all_product_entries:
             if isinstance(row, Mapping):
@@ -776,8 +406,14 @@ class RegularTaskFactory:
                 qty = row.get("qty")
                 size_name = row.get("size")
                 region_id = row.get("region_id") or row.get("region")
+                
             else:
                 continue
+
+
+            if wb_article_id == 9672663 and size_id == 1 and warehouse_id == 117419:
+
+                a = 1
 
             try:
                 wb_article_id = int(wb_article_id)
@@ -799,7 +435,8 @@ class RegularTaskFactory:
             art = products.setdefault(wb_article_id, {"wb_article_id": wb_article_id, "total_qty": 0, "sizes": {}})
             size_node = art["sizes"].setdefault(size_id, {
                 "wb_article_id": wb_article_id, "size_id": size_id, "size_name": size_name or "",
-                "total_qty": 0, "regions": {}
+                "total_qty": 0, "regions": {},"availability_days_by_warehouse": {}, "availability_days_by_region": {},
+                "orders_by_warehouse": {}
             })
             if not size_node["size_name"] and size_name:
                 size_node["size_name"] = size_name
@@ -811,7 +448,51 @@ class RegularTaskFactory:
             size_node["total_qty"] += qty
             art["total_qty"] += qty
 
+            # доступность по складу
+            if availability_index is not None:
+                info = availability_index.get((wb_article_id, size_id, warehouse_id))
+                if info:
+                    prev = size_node["availability_days_by_warehouse"].get(warehouse_id, 0)
+                    # на случай повторов берём максимум
+                    if info["days_count"] > prev:
+                        size_node["availability_days_by_warehouse"][warehouse_id] = int(info["days_count"])
+
+            # заказы 
+            if orders_index is not None:
+                oc = orders_index.get((wb_article_id, size_id, warehouse_id))
+                if oc is not None:
+                    size_node["orders_by_warehouse"][warehouse_id] = oc
+
+        if availability_index is not None:
+            for art in products.values():
+                aid = art["wb_article_id"]
+                for sid, size_node in art["sizes"].items():
+                    for rid, rnode in size_node["regions"].items():
+                        union_days = set()
+                        for wh in rnode["warehouses"].keys():
+                            info = availability_index.get((aid, sid, wh))
+                            if info:
+                                union_days |= info["days"]
+                        size_node["availability_days_by_region"][rid] = len(union_days)
+
+        self.fill_empty_regions_for_products_in_product_collection(products=products, 
+                                                                   warehouses_available_to_stock_transfer=warehouses_available_to_stock_transfer)
+
         return products
+    
+    def fill_empty_regions_for_products_in_product_collection(self, products, warehouses_available_to_stock_transfer):
+
+        for product in products.values():
+            if product['sizes']:
+                for size_id, size in product['sizes'].items():
+                    for region_id, warehouse_list in warehouses_available_to_stock_transfer.items():
+
+                        if size['regions']:
+                            if region_id not in size['regions']:
+                                empty_region_entry = {'region_id': region_id, 'total_qty': 0, 'warehouses': {warehouse_id:0 for warehouse_id in warehouse_list}}
+                                size['regions'][region_id] = empty_region_entry
+
+
 
     def merge_transfers_on_the_way_with_region(
         self,
@@ -883,10 +564,365 @@ class RegularTaskFactory:
 
 
     def sort_destinations_by_key(self, some_tuple, key):
-
-        keys_sorted = sorted(some_tuple, key=lambda k: some_tuple[k][key])
-
+    # Берём только те id, у которых значение не None
+        filtered = {k: v for k, v in some_tuple.items() if v.get(key) is not None}
+        keys_sorted = sorted(filtered, key=lambda k: filtered[k][key])
         return keys_sorted
+
+
+    def create_stock_transfer_task_for_product(self, task_collection, warehouses_available_to_stock_transfer, quota_dict, size_map):
+
+        tasks_to_process = []
+        
+        all_transfer_entries = defaultdict(lambda: defaultdict(list))
+
+        for task in task_collection:
+
+            for region in task.region_data.values():
+
+                transfer_data = region.stocks_to_be_sent_to_warehouse_dict
+                
+                if transfer_data:
+
+                    for office_id in transfer_data:
+
+                        to_be_sent_dict = {'region_id':region.id, 
+                                           'qty':transfer_data[office_id]}
+
+                        all_transfer_entries[office_id][task.size].append(to_be_sent_dict) 
+
+        for warehouse_from_id, transfer_entry_for_size in all_transfer_entries.items():
+
+            max_size, entry = max(((key, entry) for key, entries in transfer_entry_for_size.items() for entry in entries),
+                                                            key=lambda x: x[1]["qty"])
+
+            region_id_to_transfer_task = entry['region_id']
+
+            warehouse_to_ids = warehouses_available_to_stock_transfer[region_id_to_transfer_task]
+
+            product_size_array = []
+
+            for size_to_create, entries in transfer_entry_for_size.items():
+                for entry in entries:
+                    if region_id_to_transfer_task == entry['region_id']:
+                        
+
+                        product_size_info = ProductSizeInfo(size_id=size_to_create,
+                                                            tech_size_id=task.tech_size_id,
+                                                            transfer_qty=entry['qty'],
+                                                            transfer_qty_left_real=entry['qty'],
+                                                            transfer_qty_left_virtual=entry['qty'],
+                                                            is_archived=False)
+                        product_size_array.append(product_size_info)
+
+            products_to_task = ProductToTask(product_wb_id=task.nmId,
+                                              sizes=product_size_array)
+
+            new_task = TaskWithProducts(
+                task_id=0,
+                warehouses_from_ids=[warehouse_from_id],
+                warehouses_to_ids=warehouse_to_ids,
+                task_status=1,
+                products=[products_to_task],
+                is_archived=0)
+            
+            tasks_to_process.append(new_task)
+
+        if tasks_to_process:
+            self.send_stock_transfer_request(tasks_to_process=tasks_to_process, quota_dict=quota_dict, size_map=size_map)
+
+        
+    def send_stock_transfer_request(self, tasks_to_process, quota_dict, size_map):
+
+        for task_idx, task in enumerate(tasks_to_process, start=1):
+            self.logger.info("Обработка задания #%s", task_idx)
+
+            try:
+                # Проверяем, есть ли для задания квоты на перемещение
+                available_warehouses_from_ids, available_warehouses_to_ids = self.get_available_warehouses_by_quota(quota_dict=quota_dict, task=task)
+                self.logger.debug("Доступные склады-источники: %s; склады-получатели: %s",
+                                  available_warehouses_from_ids, available_warehouses_to_ids)
+                if not available_warehouses_from_ids or not available_warehouses_to_ids:
+                    self.logger.warning("Нет доступных складов по квотам. Пропускаю задание.")
+                    continue
+
+            except Exception as e:
+                self.logger.exception("Ошибка при определении доступных складов: %s", e)
+                continue
+
+            # По каждому продукту в задании проводим итерацию
+            for product_idx, product in enumerate(getattr(task, "products", []) , start=1):
+            
+                products_on_the_way_array = []
+            
+                self.logger.info("Задание #%s: обработка продукта #%s (nmID=%s)", task_idx, product_idx, getattr(product, "product_wb_id", None))
+                
+                try:
+                    # Cмотрим остатки по всем складам
+                    product_stocks, status_code = self.fetch_stocks_by_nmid(nmid=product.product_wb_id,
+                                                               warehouses_in_task_list=available_warehouses_from_ids)
+                    
+                    if status_code != 200:
+                        self.logger.error("Не получилось получить актуальные стоки для nmID=%s", getattr(product, "product_wb_id", None))
+                        break
+                    
+                    self.logger.debug("Стоки для nmID=%s: %s", getattr(product, "product_wb_id", None), product_stocks)
+
+                except Exception as e:
+                    self.logger.exception("Ошибка при получении стоков для продукта nmID=%s: %s", getattr(product, "product_wb_id", None), e)
+                    product_stocks = None
+
+                # Если нет остатков
+                if not product_stocks:
+                    self.logger.info("Остатков нет для nmID=%s. Пропуск.", getattr(product, "product_wb_id", None))
+                    continue
+
+                # Для каждого склада донора из доступных
+                for src_warehouse_id in available_warehouses_from_ids:
+                    warehouse_quota_src = quota_dict[src_warehouse_id]['src']  # Если квота на нуле, пропускаем
+                    if warehouse_quota_src < 1:
+                        self.logger.debug(f"Недостаточно квоты на складе-доноре. src: {src_warehouse_id} - {src_warehouse_quota}")
+                        continue
+
+                    self.logger.debug("Обработка склада-донора src_warehouse_id=%s", src_warehouse_id)
+                    current_warehouse_transfer_request_bodies = defaultdict(dict)  # Записи трансфера по донору на каждое наставление
+
+                    for size in getattr(product, "sizes", []):
+                        try:
+                            if size.transfer_qty_left_virtual <= 0:
+                                self.logger.debug("Размер %s: transfer_qty_left_virtual<=0, пропуск", getattr(size, "size_id", None))
+                                continue
+
+                            self.logger.debug("Создание позиций для size_id=%s (осталось виртуально=%s)",
+                                              getattr(size, "size_id", None), getattr(size, "transfer_qty_left_virtual", None))
+
+                            # Заполняем записи под размер
+                            self.create_single_size_entries(
+                                src_warehouse_id=src_warehouse_id,
+                                size=size,
+                                product_stocks=product_stocks,
+                                available_warehouses_to_ids=available_warehouses_to_ids,
+                                quota_dict=quota_dict,
+                                task=task,
+                                current_warehouse_transfer_request_bodies=current_warehouse_transfer_request_bodies)
+                            
+                        except Exception as e:
+                            self.logger.exception("Ошибка при создании записей для size_id=%s: %s", getattr(size, "size_id", None), e)
+
+                    for dst_warehouse_id, warehouse_entries in current_warehouse_transfer_request_bodies.items():
+
+                        dst_warehouse_quota = quota_dict[dst_warehouse_id]['dst'] # Если квота на нуле, пропускаем
+                        src_warehouse_quota = quota_dict[src_warehouse_id]['src']
+
+                        if dst_warehouse_quota < 1 or src_warehouse_quota < 1:
+                            self.logger.debug(f"На одном из складов. src: {src_warehouse_id} - {src_warehouse_quota} | dst: {dst_warehouse_id} - {dst_warehouse_quota}")
+
+                            continue
+
+                        try:
+                            self.logger.debug("Формирование тела заявки: src=%s -> dst=%s; entries=%s",
+                                              src_warehouse_id, dst_warehouse_id, warehouse_entries)
+
+                            warehouse_req_body = self.create_transfer_request_body(
+                                src_warehouse_id=src_warehouse_id,
+                                dst_wrh_id=dst_warehouse_id,
+                                product=product,
+                                warehouse_entries=warehouse_entries)
+
+                            self.logger.info("Готово тело заявки для отправки: %s", warehouse_req_body)
+                            try:
+                                print(f"POST: {warehouse_req_body}")
+                                self.logger.debug("Отправка заявки: %s", warehouse_req_body)
+
+                                # response = self.send_transfer_request(warehouse_req_body)
+                                # if response.status_code in [200, 201, 202, 204]:
+                                mock_true = True
+                                if mock_true:
+                                    for size in getattr(product, "sizes", []):
+                                        if size.size_id in warehouse_entries:
+                                            size.transfer_qty_left_real -= warehouse_entries[size.size_id]['count']
+                                            self.logger.debug(
+                                                "Обновлен transfer_qty_left_real для size_id=%s: -%s",
+                                                size.size_id, warehouse_entries[size.size_id]['count'])
+                                            quota_dict[src_warehouse_id]['src'] -= warehouse_entries[size.size_id]['count']
+                                            quota_dict[dst_warehouse_id]['dst'] -= warehouse_entries[size.size_id]['count']
+
+                                            product_on_the_way_entry = (product.product_wb_id, warehouse_entries[size.size_id]['count'], size_map[size.size_id], src_warehouse_id, dst_warehouse_id)
+                                            
+                                            products_on_the_way_array.append(product_on_the_way_entry)
+
+                            except Exception as e:
+                                print(f"Ошибка при отправке запроса: {e}")
+                                self.logger.exception("Ошибка при отправке запроса: %s", e)
+
+                        except Exception as e:
+                            self.logger.exception("Ошибка при подготовке/отправке заявки src=%s dst=%s: %s",
+                                                  src_warehouse_id, dst_warehouse_id, e)
+
+            try:
+                self.db_controller.insert_products_on_the_way(items=products_on_the_way_array)
+                # self.db_controller.update_transfer_qty_from_task(task)  # Тут в БД несем задания
+                self.logger.info("Задание #%s: обновлены количества трансферов в БД", task_idx)
+            except Exception as e:
+                self.logger.exception("Ошибка при обновлении задания #%s в БД: %s", task_idx, e)
+
+        self.logger.info("Завершение обработки регулярного задания()")
+
+
+    def get_available_warehouses_by_quota(self, quota_dict: Dict[int, Dict[str, int]], task: TaskWithProducts) -> Tuple[List[int], List[int]]:
+        self.logger.debug("Расчёт доступных складов по квотам")
+        try:
+            available_warehouses_from_ids = [wid for wid, q in quota_dict.items() if q.get('src', 0) != 0 and wid in task.warehouses_from_ids]
+            available_warehouses_to_ids = [wid for wid, q in quota_dict.items() if q.get('dst', 0) != 0 and wid in task.warehouses_to_ids]
+            self.logger.info("Доступно from: %s; to: %s",
+                             len(available_warehouses_from_ids), len(available_warehouses_to_ids))
+            return available_warehouses_from_ids, available_warehouses_to_ids
+        except Exception as e:
+            self.logger.exception("Ошибка в get_available_warehouses_by_quota: %s", e)
+            return [], []
+        
+
+    def fetch_stocks_by_nmid(self, nmid: int, warehouses_in_task_list: list):
+        self.logger.debug("Запрос стоков по nmID=%s для складов: %s", nmid, warehouses_in_task_list)
+        try:
+            response = self.api_controller.request(
+                base_url="https://seller-weekly-report.wildberries.ru",
+                method="GET",
+                endpoint="/ns/shifts/analytics-back/api/v1/stocks",
+                params={"nmID": str(nmid)},
+                cookies=self.cookie_jar,
+                headers=self.headers)
+            
+            self.logger.debug("Ответ по стокам: status=%s", getattr(response, "status_code", None))
+
+            stock_by_warehouse_dict = {}
+            response_json = response.json()
+            stock_data = response_json.get("data", {})
+            src_data = stock_data.get("src", [])
+            for warehouse in src_data:
+                try:
+                    office_id = warehouse["officeID"]
+                    if office_id in warehouses_in_task_list:
+                        stock_by_warehouse_dict[office_id] = warehouse["inStock"]
+                except Exception as inner_e:
+                    self.logger.exception("Ошибка парсинга склада в стоках: %s", inner_e)
+                    continue
+
+            self.logger.info("Получены стоки по nmID=%s: %s складов", nmid, len(stock_by_warehouse_dict))
+            return stock_by_warehouse_dict, response.status_code
+
+        except Exception as e:
+            self.logger.exception("Ошибка в fetch_stocks_by_nmid nmID=%s: %s", nmid, e)
+            return None
+
+
+
+    def create_transfer_request_body(self, src_warehouse_id, dst_wrh_id, product, warehouse_entries):
+        self.logger.debug("Формирование тела transfer request: src=%s dst=%s nmID=%s",
+                          src_warehouse_id, dst_wrh_id, getattr(product, "product_wb_id", None))
+        try:
+            warehouse_req_body = {
+                "order": {
+                    "src": src_warehouse_id,
+                    "dst": dst_wrh_id,
+                    "nmID": product.product_wb_id,
+                    "count": []}}
+
+            for size_id, count_entry in warehouse_entries.items():
+                warehouse_req_body['order']['count'].append(count_entry)
+
+            self.logger.debug("Сформирован body: %s", warehouse_req_body)
+            return warehouse_req_body
+        
+        except Exception as e:
+            self.logger.exception("Ошибка при формировании тела заявки: %s", e)
+
+
+    def create_single_size_entries(self,
+                                   src_warehouse_id: int,
+                                   size: ProductSizeInfo,
+                                   product_stocks: dict,
+                                   available_warehouses_to_ids: list,
+                                   quota_dict: dict,
+                                   task: TaskWithProducts,
+                                   current_warehouse_transfer_request_bodies: defaultdict):
+        self.logger.debug("Старт create_single_size_entries(): src=%s size_id=%s",
+                          src_warehouse_id, getattr(size, "size_id", None))
+        try:
+            size_id = size.size_id
+            size_stock_list = product_stocks.get(src_warehouse_id, [])
+            self.logger.debug("size_stock_list для склада %s: %s позиций", src_warehouse_id, len(size_stock_list))
+
+            for stock_entry in size_stock_list:
+                if stock_entry['techSize'] != size_id:
+                    continue
+
+                available_qty = stock_entry['count']
+                if available_qty <= 0:
+                    self.logger.debug("Доступное количество 0 для size_id=%s, пропуск", size_id)
+                    continue
+
+                move_qty = min(size.transfer_qty_left_virtual, available_qty)
+                if move_qty <= 0:
+                    self.logger.debug("move_qty<=0 для size_id=%s, пропуск", size_id)
+                    continue
+
+                for dst_warehouse_id in task.warehouses_to_ids:
+                    if size.transfer_qty_left_virtual > 0 and move_qty > 0:
+                        try:
+                            dst_quota = quota_dict[dst_warehouse_id]['dst']
+                        except Exception as e:
+                            self.logger.exception("Ошибка доступа к квоте dst для склада %s: %s", dst_warehouse_id, e)
+                            dst_quota = 0
+
+                        if dst_quota > 0 and dst_warehouse_id in available_warehouses_to_ids:
+                            transfer_amount = min(dst_quota, move_qty, available_qty)
+                            request_count_entry = {
+                                "chrtID": stock_entry["chrtID"],
+                                "count": transfer_amount}
+                            
+                            current_warehouse_transfer_request_bodies[dst_warehouse_id][size_id] = request_count_entry
+                            self.logger.debug("Добавлена запись в запрос: dst=%s size_id=%s amount=%s",
+                                              dst_warehouse_id, size_id, transfer_amount)
+                            available_qty -= transfer_amount
+                            size.transfer_qty_left_virtual -= transfer_amount
+                            move_qty -= 1
+                            
+        except Exception as e:
+            self.logger.exception("Ошибка в create_single_size_entries: %s", e)
+
+
+
+"""
+{"order":
+    {"src":206348,"dst":120762,"nmID":456709413,
+    "count":[{"chrtID":644101681,"count":1},
+    {"chrtID":644101683,"count":1}]}}
+
+
+"""
+
+# class ProductSizeInfo(BaseModel):
+#     size_id: str
+#     transfer_qty: int
+#     transfer_qty_left_virtual: int
+#     transfer_qty_left_real:int
+#     is_archived: Optional[bool] = False
+
+# class ProductToTask(BaseModel):
+#     product_wb_id: int
+#     sizes: List[ProductSizeInfo]
+
+# class TaskWithProducts(BaseModel):
+#     task_id: int
+#     warehouses_from_ids: Optional[Any]  # JSON field: could be list[int], dict, etc.
+#     warehouses_to_ids: Optional[Any]
+#     task_status: Optional[int]
+#     is_archived: Optional[bool]
+#     task_creation_date: Optional[datetime]
+#     task_archiving_date: Optional[datetime]
+#     last_change_date: Optional[datetime]
+#     products: List[ProductToTask] = []
 
 
 
