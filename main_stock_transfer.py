@@ -7,7 +7,6 @@ from dependencies.dependencies import (api_controller,
                                         mysql_controller,
                                         cookie_jar,
                                         authorized_headers,
-                                        wb_content_api_key,
                                         logger)
 
 from services.regular_task_factory import RegularTaskFactory
@@ -27,7 +26,6 @@ def main():
                                                   api_controller=api_controller,
                                                   cookie_jar=cookie_jar,
                                                   headers=authorized_headers,
-                                                  wb_content_api_key=wb_content_api_key,
                                                   logger=logger)
 
         regular_task_factory.run4()

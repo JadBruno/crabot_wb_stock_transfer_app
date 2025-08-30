@@ -25,13 +25,11 @@ class RegularTaskFactory:
                  api_controller: SyncAPIController,
                  cookie_jar: RequestsCookieJar,
                  headers: Dict,
-                 wb_content_api_key: str,
                  logger):
         self.db_controller = db_controller
         self.api_controller = api_controller
         self.cookie_jar = cookie_jar
         self.headers = headers
-        self.wb_content_api_key = wb_content_api_key
         self.logger = logger
         self.MIN_AVAILABILITY_DAY_COUNT_FOR_TRANSFER = 14
 
