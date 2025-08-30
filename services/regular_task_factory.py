@@ -78,7 +78,7 @@ class RegularTaskFactory:
             office_id_list = list(warehouse_priority_dict.keys())
             
             quota_dict = dict(self.get_warehouse_quotas(office_id_list))
-            quota_dict = {507: {'src': 39835, 'dst': 0}, 117986: {'src': 46346, 'dst': 354353}, 120762: {'src': 0, 'dst': 74184}, 2737: {'src': 24709, 'dst': 0}, 130744: {'src': 0, 'dst': 459945}, 686: {'src': 24992, 'dst': 0}, 1733: {'src': 24340, 'dst': 0}, 206348: {'src': 10000, 'dst': 72554}, 208277: {'src': 0, 'dst': 84267}, 301760: {'src': 0, 'dst': 93503}, 301809: {'src': 0, 'dst': 493275}, 301983: {'src': 0, 'dst': 3355}}
+            # quota_dict = {507: {'src': 39835, 'dst': 0}, 117986: {'src': 46346, 'dst': 354353}, 120762: {'src': 0, 'dst': 74184}, 2737: {'src': 24709, 'dst': 0}, 130744: {'src': 0, 'dst': 459945}, 686: {'src': 24992, 'dst': 0}, 1733: {'src': 24340, 'dst': 0}, 206348: {'src': 10000, 'dst': 72554}, 208277: {'src': 0, 'dst': 84267}, 301760: {'src': 0, 'dst': 93503}, 301809: {'src': 0, 'dst': 493275}, 301983: {'src': 0, 'dst': 3355}}
 
             self.remove_unavailable_warehouses_from_current_session(quota_dict=quota_dict,
                                                                         region_priority_dict=region_priority_dict,
@@ -226,15 +226,202 @@ class RegularTaskFactory:
                 region_priority_dict[region_id]["dst_priority"] = None
 
 
-    def create_task_for_product(self, product_collection, 
-                                task_row, 
-                                region_priority_dict, 
-                                warehouse_priority_dict, 
-                                warehouses_available_to_stock_transfer,
-                                quota_dict,
-                                size_map):
-        # tasks = []
+    # def create_task_for_product(self, product_collection, 
+    #                             task_row, 
+    #                             region_priority_dict, 
+    #                             warehouse_priority_dict, 
+    #                             warehouses_available_to_stock_transfer,
+    #                             quota_dict,
+    #                             size_map):
+    #     # tasks = []
 
+    #     region_src_sort_order = self.sort_destinations_by_key(region_priority_dict, key='src_priority')
+    #     region_dst_sort_order = self.sort_destinations_by_key(region_priority_dict, key='dst_priority')
+
+    #     warehouse_src_sort_order = self.sort_destinations_by_key(warehouse_priority_dict, key='src_priority')
+    #     warehouse_dst_sort_order = self.sort_destinations_by_key(warehouse_priority_dict, key='dst_priority')
+
+    #     for product in product_collection.values():
+
+    #         current_tasks_for_product = []
+
+    #         source_warehouses_available_for_nmId = warehouse_src_sort_order.copy()
+
+    #         source_warehouse_used_in_transfer = []
+
+    #         try:
+    #             for size_id, size_data in product["sizes"].items():
+
+    #                 task_for_size = RegularTaskForSize(
+    #                     nmId=product["wb_article_id"],
+    #                     size=size_data["size_name"],
+    #                     tech_size_id=size_id,
+    #                     total_stock_for_product=size_data["total_qty"],
+    #                     availability_days_by_warehouse=size_data['availability_days_by_warehouse'],
+    #                     orders_by_warehouse=size_data['orders_by_warehouse'])
+
+    #                 # Заполняем регионы
+    #                 for region_id, region_data in size_data["regions"].items():
+    #                     region_obj = task_for_size.region_data.get(region_id)
+
+    #                     if region_obj is None:
+    #                         continue
+
+    #                     # склады
+    #                     region_obj.warehouses = list(region_data["warehouses"].keys())
+    #                     region_obj.stock_by_warehouse = [
+    #                         {wh: qty} for wh, qty in region_data["warehouses"].items()]
+                        
+    #                     region_obj.stock_by_region_before = region_data["total_qty"]
+    #                     region_obj.stock_by_region_after = region_data["total_qty"]
+
+    #                     # target/min из task_row 
+    #                     target_key = f"target_{region_obj.attribute}"
+    #                     min_key = f"min_{region_obj.attribute}"
+
+    #                     region_obj.target_share = task_row.get(target_key, 0)
+    #                     region_obj.min_share = task_row.get(min_key, 0)
+
+    #                     region_obj.target_stock_by_region = math.floor(
+    #                         task_for_size.total_stock_for_product * region_obj.target_share)
+                        
+    #                     region_obj.min_stock_by_region = math.floor(
+    #                         task_for_size.total_stock_for_product * region_obj.min_share)
+
+    #                     region_obj.amount_to_deliver = math.floor(max(
+    #                         0, region_obj.target_stock_by_region - region_obj.stock_by_region_before))
+                        
+    #                     region_obj.is_below_min = (region_obj.stock_by_region_before < region_obj.min_stock_by_region
+    #                         and region_obj.amount_to_deliver > 0)
+                        
+    #                 for dst_region_id in region_dst_sort_order:
+
+    #                     dst_warehouses_for_region =[warehouse_id for warehouse_id in warehouses_available_to_stock_transfer[dst_region_id] if warehouse_id in warehouse_dst_sort_order]
+
+    #                     dst_region_data_entry = task_for_size.region_data[dst_region_id]
+    #                     amount_to_add = dst_region_data_entry.amount_to_deliver
+
+    #                     if dst_region_data_entry.is_below_min == True and dst_warehouses_for_region:
+    #                         for src_region_id in region_src_sort_order:
+                                
+    #                             if src_region_id == dst_region_id:
+    #                                     continue
+                                
+    #                             if amount_to_add > 0:
+
+                                    
+    #                                 current_src_entry_warehouse_sort = [office_id for office_id in warehouse_src_sort_order if office_id in warehouses_available_to_stock_transfer[src_region_id]]
+
+    #                                 src_region_data_entry = task_for_size.region_data[src_region_id]
+
+    #                                 warehouse_for_region_list = [warehouse_id for warehouse_id in warehouses_available_to_stock_transfer[src_region_id] if warehouse_priority_dict.get(warehouse_id) is not None]
+
+    #                                 available_donor_status = True
+
+    #                                 # for warehouse_id in warehouse_for_region_list: 
+                                        
+    #                                 #     days_available = task_for_size.availability_days_by_warehouse.get(warehouse_id, None) 
+    #                                 #     orders_by_warehouse = task_for_size.orders_by_warehouse.get(warehouse_id, None) 
+
+    #                                 #     if days_available is None or days_available < self.MIN_AVAILABILITY_DAY_COUNT_FOR_TRANSFER: 
+    #                                 #         available_donor_status = False 
+    #                                 #     else: available_donor_status = True 
+                                        
+    #                                 #     if orders_by_warehouse is None or src_region_data_entry.stock_by_region_after - orders_by_warehouse < 0: 
+    #                                 #         available_donor_status = False 
+    #                                 #     else: available_donor_status = True 
+                                        
+    #                                 #     if available_donor_status == False: 
+    #                                 #         continue
+
+    #                                 has_valid_donor = False # эту штуку написал гпт, тут проверяем наличие на складе и количество продаж
+    #                                 for warehouse_id in warehouse_for_region_list:
+    #                                     days_ok = (task_for_size.availability_days_by_warehouse.get(warehouse_id, 0)
+    #                                             >= self.MIN_AVAILABILITY_DAY_COUNT_FOR_TRANSFER)
+    #                                     orders = task_for_size.orders_by_warehouse.get(warehouse_id, 0)
+    #                                     orders_ok = (orders is not None and
+    #                                                 task_for_size.region_data[src_region_id].stock_by_region_after - orders >= 0) # TODO нужно сюда добавить переменную и рассчитать, сколько можно увезти
+    #                                     if days_ok and orders_ok:
+    #                                         has_valid_donor = True
+    #                                         break
+    #                                 if not has_valid_donor:
+    #                                     continue
+
+    #                                 total_stock_for_region_in_allowed_warehouses = sum([qty for stock_entry in src_region_data_entry.stock_by_warehouse for office_id, qty in stock_entry.items() if office_id in current_src_entry_warehouse_sort])
+                                    
+    #                                 transferrable_amount = src_region_data_entry.stock_by_region_after - src_region_data_entry.target_stock_by_region
+                                    
+    #                                 if transferrable_amount > 0:
+
+    #                                     amount_available_to_be_sent = min(total_stock_for_region_in_allowed_warehouses, transferrable_amount)
+                                        
+    #                                     amount_to_be_sent = min(amount_available_to_be_sent, amount_to_add)
+
+    #                                     if amount_to_be_sent > 0:
+                                            
+    #                                         for office_id in current_src_entry_warehouse_sort:
+
+    #                                             for wh_stock_entry in src_region_data_entry.stock_by_warehouse:
+                                            
+    #                                                 if office_id in wh_stock_entry:
+
+    #                                                     qty_to_be_transferred = min(wh_stock_entry[office_id], amount_to_be_sent)
+
+    #                                                     if qty_to_be_transferred:
+
+    #                                                         dst_region_data_entry.stocks_to_be_sent_to_warehouse_dict[office_id] = qty_to_be_transferred
+
+    #                                                         wh_stock_entry[office_id] -= qty_to_be_transferred
+
+    #                                                         amount_to_add -= qty_to_be_transferred
+
+    #                                                         src_region_data_entry.stock_by_region_after -= qty_to_be_transferred
+
+    #                                                         amount_to_be_sent -= qty_to_be_transferred
+
+    #                                                         if office_id not in source_warehouse_used_in_transfer:
+    #                                                             source_warehouse_used_in_transfer.append(office_id)
+
+
+    #                                                         task_for_size.to_process = True
+    #                 if getattr(task_for_size, 'to_process', False):
+    #                     current_tasks_for_product.append(task_for_size)
+
+    #         except Exception as e:
+    #             print(f"Ошибка при обработке продукта {product.get('wb_article_id')}: {e}")
+
+    #         if current_tasks_for_product:
+
+    #             self.create_stock_transfer_task_for_product(current_tasks_for_product, 
+    #                                                         warehouses_available_to_stock_transfer, 
+    #                                                         quota_dict=quota_dict,
+    #                                                         warehouse_src_sort_order=warehouse_src_sort_order,
+    #                                                         warehouse_dst_sort_order=warehouse_dst_sort_order,
+    #                                                         size_map=size_map) 
+
+    #         a = 1
+
+    #     return None
+    
+    def create_task_for_product(self,
+                            product_collection,
+                            task_row,
+                            region_priority_dict,
+                            warehouse_priority_dict,
+                            warehouses_available_to_stock_transfer,
+                            quota_dict,
+                            size_map):
+        """
+        Создаёт задачи перемещения по товарам/размерам.
+        - Если регион-получатель не имеет ни одного склада из warehouse_dst_sort_order,
+        регистрируем can_receive = False и пропускаем его.
+        - Безопасные обращения к словарям (.get(...)).
+        - Фикс бага с region_id -> dst_region_id для dst-складов.
+        """
+
+    
+
+        # Сортировки регионов и складов (источник/приём)
         region_src_sort_order = self.sort_destinations_by_key(region_priority_dict, key='src_priority')
         region_dst_sort_order = self.sort_destinations_by_key(region_priority_dict, key='dst_priority')
 
@@ -244,160 +431,199 @@ class RegularTaskFactory:
         for product in product_collection.values():
 
             current_tasks_for_product = []
-
             source_warehouses_available_for_nmId = warehouse_src_sort_order.copy()
-
             source_warehouse_used_in_transfer = []
 
             try:
-                for size_id, size_data in product["sizes"].items():
+                for size_id, size_data in product.get("sizes", {}).items():
 
                     task_for_size = RegularTaskForSize(
-                        nmId=product["wb_article_id"],
-                        size=size_data["size_name"],
+                        nmId=product.get("wb_article_id"),
+                        size=size_data.get("size_name"),
                         tech_size_id=size_id,
-                        total_stock_for_product=size_data["total_qty"],
-                        availability_days_by_warehouse=size_data['availability_days_by_warehouse'],
-                        orders_by_warehouse=size_data['orders_by_warehouse'])
+                        total_stock_for_product=size_data.get("total_qty", 0),
+                        availability_days_by_warehouse=size_data.get('availability_days_by_warehouse', {}) or {},
+                        orders_by_warehouse=size_data.get('orders_by_warehouse', {}) or {})
 
                     # Заполняем регионы
-                    for region_id, region_data in size_data["regions"].items():
+                    for region_id, region_data in size_data.get("regions", {}).items():
                         region_obj = task_for_size.region_data.get(region_id)
-
                         if region_obj is None:
                             continue
 
-                        # склады
-                        region_obj.warehouses = list(region_data["warehouses"].keys())
-                        region_obj.stock_by_warehouse = [
-                            {wh: qty} for wh, qty in region_data["warehouses"].items()]
-                        
-                        region_obj.stock_by_region_before = region_data["total_qty"]
-                        region_obj.stock_by_region_after = region_data["total_qty"]
+                        wh_dict = region_data.get("warehouses", {}) or {}
 
-                        # target/min из task_row 
+                        # Список складов и стоки по складам
+                        region_obj.warehouses = list(wh_dict.keys())
+                        region_obj.stock_by_warehouse = [{wh: qty} for wh, qty in wh_dict.items()]
+
+                        # До/после по региону
+                        total_qty = region_data.get("total_qty", 0)
+                        region_obj.stock_by_region_before = total_qty
+                        region_obj.stock_by_region_after = total_qty
+
+                        # Целевые/минимальные доли из task_row по атрибуту региона
                         target_key = f"target_{region_obj.attribute}"
                         min_key = f"min_{region_obj.attribute}"
 
-                        region_obj.target_share = task_row.get(target_key, 0)
-                        region_obj.min_share = task_row.get(min_key, 0)
+                        region_obj.target_share = task_row.get(target_key, 0) or 0
+                        region_obj.min_share = task_row.get(min_key, 0) or 0
 
+                        # Целевые/минимальные стоки в штуках
                         region_obj.target_stock_by_region = math.floor(
-                            task_for_size.total_stock_for_product * region_obj.target_share)
-                        
+                            task_for_size.total_stock_for_product * region_obj.target_share
+                        )
                         region_obj.min_stock_by_region = math.floor(
-                            task_for_size.total_stock_for_product * region_obj.min_share)
+                            task_for_size.total_stock_for_product * region_obj.min_share
+                        )
 
-                        region_obj.amount_to_deliver = math.floor(max(
-                            0, region_obj.target_stock_by_region - region_obj.stock_by_region_before))
-                        
-                        region_obj.is_below_min = (region_obj.stock_by_region_before < region_obj.min_stock_by_region
-                            and region_obj.amount_to_deliver > 0)
-                        
+                        # Сколько нужно довезти до цели
+                        region_obj.amount_to_deliver = math.floor(
+                            max(0, region_obj.target_stock_by_region - region_obj.stock_by_region_before)
+                        )
+
+                        region_obj.is_below_min = (
+                            region_obj.stock_by_region_before < region_obj.min_stock_by_region
+                            and region_obj.amount_to_deliver > 0
+                        )
+
+                        # Флаг по умолчанию: регион может принимать
+                        region_obj.can_receive = True
+                        region_obj.skip_reason = None
+
+                    # Распределение по регионам-получателям 
                     for dst_region_id in region_dst_sort_order:
+                        # Пропускаем, если региона нет в данных по этому размеру
+                        if dst_region_id not in task_for_size.region_data:
+                            continue
+
+                        # Доступные к приёмке склады для региона-получателя (с учётом порядка назначения)
+                        dst_wh_all = warehouses_available_to_stock_transfer.get(dst_region_id, []) or []
+                        dst_warehouses_for_region = [warehouse_id for warehouse_id in dst_wh_all
+                                                     if warehouse_id in warehouse_dst_sort_order]
 
                         dst_region_data_entry = task_for_size.region_data[dst_region_id]
                         amount_to_add = dst_region_data_entry.amount_to_deliver
 
-                        if dst_region_data_entry.is_below_min == True:
+                        # Если нет ни одного допустимого склада-получателя — фиксируем и пропускаем регион
+                        if not dst_warehouses_for_region:
+                            dst_region_data_entry.can_receive = False
+                            dst_region_data_entry.skip_reason = 'no_dst_warehouses_in_sort_order'
+                            continue
+
+                        if dst_region_data_entry.is_below_min and amount_to_add > 0:
                             for src_region_id in region_src_sort_order:
-                                
+
+                                # нельзя возить внутри одного региона
                                 if src_region_id == dst_region_id:
-                                        continue
-                                
-                                if amount_to_add > 0:
+                                    continue
 
-                                    
-                                    current_src_entry_warehouse_sort = [office_id for office_id in warehouse_src_sort_order if office_id in warehouses_available_to_stock_transfer[src_region_id]]
+                                if amount_to_add <= 0:
+                                    break
 
-                                    src_region_data_entry = task_for_size.region_data[src_region_id]
+                                # Ограничиваем список складов-источников по доступности и приоритету
+                                current_src_entry_warehouse_sort = [office_id for office_id in warehouse_src_sort_order
+                                    if office_id in (warehouses_available_to_stock_transfer.get(src_region_id, []) or [])]
 
-                                    warehouse_for_region_list = [warehouse_id for warehouse_id in warehouses_available_to_stock_transfer[src_region_id] if warehouse_priority_dict.get(warehouse_id) is not None]
+                                # Если регион-источник вообще не описан для размера — дальше смысла нет
+                                if src_region_id not in task_for_size.region_data:
+                                    continue
 
-                                    available_donor_status = True
+                                src_region_data_entry = task_for_size.region_data[src_region_id]
 
-                                    # for warehouse_id in warehouse_for_region_list: 
-                                        
-                                    #     days_available = task_for_size.availability_days_by_warehouse.get(warehouse_id, None) 
-                                    #     orders_by_warehouse = task_for_size.orders_by_warehouse.get(warehouse_id, None) 
+                                # Список складов донора с известным приоритетом
+                                warehouse_for_region_list = [
+                                    warehouse_id for warehouse_id in (warehouses_available_to_stock_transfer.get(src_region_id, []) or [])
+                                    if warehouse_priority_dict.get(warehouse_id) is not None]
 
-                                    #     if days_available is None or days_available < self.MIN_AVAILABILITY_DAY_COUNT_FOR_TRANSFER: 
-                                    #         available_donor_status = False 
-                                    #     else: available_donor_status = True 
-                                        
-                                    #     if orders_by_warehouse is None or src_region_data_entry.stock_by_region_after - orders_by_warehouse < 0: 
-                                    #         available_donor_status = False 
-                                    #     else: available_donor_status = True 
-                                        
-                                    #     if available_donor_status == False: 
-                                    #         continue
+                                # Проверка валидности донора (по дням наличия и заказам)
+                                has_valid_donor = False
+                                for warehouse_id in warehouse_for_region_list:
+                                    days_ok = (task_for_size.availability_days_by_warehouse.get(warehouse_id, 0)
+                                            >= self.MIN_AVAILABILITY_DAY_COUNT_FOR_TRANSFER)
+                                    orders = task_for_size.orders_by_warehouse.get(warehouse_id, 0)
+                                    # не уходим в минус по региону-источнику после списания заказов
+                                    orders_ok = (orders is not None and
+                                                (src_region_data_entry.stock_by_region_after - orders) >= 0)
+                                    if days_ok and orders_ok:
+                                        has_valid_donor = True
+                                        break
+                                if not has_valid_donor:
+                                    continue
 
-                                    has_valid_donor = False # эту штуку написал гпт, тут проверяем наличие на складе и количество продаж
-                                    for warehouse_id in warehouse_for_region_list:
-                                        days_ok = (task_for_size.availability_days_by_warehouse.get(warehouse_id, 0)
-                                                >= self.MIN_AVAILABILITY_DAY_COUNT_FOR_TRANSFER)
-                                        orders = task_for_size.orders_by_warehouse.get(warehouse_id, 0)
-                                        orders_ok = (orders is not None and
-                                                    task_for_size.region_data[src_region_id].stock_by_region_after - orders >= 0) # TODO нужно сюда добавить переменную и рассчитать, сколько можно увезти
-                                        if days_ok and orders_ok:
-                                            has_valid_donor = True
+                                # Сколько реально есть на «разрешённых» складах региона-донора
+                                total_stock_for_region_in_allowed_warehouses = sum(qty
+                                    for stock_entry in src_region_data_entry.stock_by_warehouse
+                                    for office_id, qty in stock_entry.items()
+                                    if office_id in current_src_entry_warehouse_sort)
+
+                                # Сколько теоретически можно вывести без просадки ниже target региона-донора
+                                transferrable_amount = max(0, src_region_data_entry.stock_by_region_after - src_region_data_entry.target_stock_by_region)
+
+                                if transferrable_amount <= 0:
+                                    continue
+
+                                amount_available_to_be_sent = min(
+                                    total_stock_for_region_in_allowed_warehouses,
+                                    transferrable_amount
+                                )
+                                amount_to_be_sent = min(amount_available_to_be_sent, amount_to_add)
+
+                                if amount_to_be_sent <= 0:
+                                    continue
+
+                                # Разложение по складам-источникам в порядке приоритета
+                                for office_id in current_src_entry_warehouse_sort:
+                                    if amount_to_be_sent <= 0:
+                                        break
+
+                                    for wh_stock_entry in src_region_data_entry.stock_by_warehouse:
+                                        if amount_to_be_sent <= 0:
                                             break
-                                    if not has_valid_donor:
-                                        continue
 
-                                    total_stock_for_region_in_allowed_warehouses = sum([qty for stock_entry in src_region_data_entry.stock_by_warehouse for office_id, qty in stock_entry.items() if office_id in current_src_entry_warehouse_sort])
-                                    
-                                    transferrable_amount = src_region_data_entry.stock_by_region_after - src_region_data_entry.target_stock_by_region
-                                    
-                                    if transferrable_amount > 0:
+                                        if office_id in wh_stock_entry:
+                                            qty_in_office = wh_stock_entry[office_id]
+                                            if not qty_in_office:
+                                                continue
 
-                                        amount_available_to_be_sent = min(total_stock_for_region_in_allowed_warehouses, transferrable_amount)
-                                        
-                                        amount_to_be_sent = min(amount_available_to_be_sent, amount_to_add)
+                                            qty_to_be_transferred = min(qty_in_office, amount_to_be_sent)
+                                            if qty_to_be_transferred <= 0:
+                                                continue
 
-                                        if amount_to_be_sent > 0:
-                                            
-                                            for office_id in current_src_entry_warehouse_sort:
+                                            # Фиксируем объём к отправке на склад-приёмщик (здесь сохраняем по офису-источнику)
+                                            dst_region_data_entry.stocks_to_be_sent_to_warehouse_dict[office_id] = \
+                                                dst_region_data_entry.stocks_to_be_sent_to_warehouse_dict.get(office_id, 0) + qty_to_be_transferred
 
-                                                for wh_stock_entry in src_region_data_entry.stock_by_warehouse:
-                                            
-                                                    if office_id in wh_stock_entry:
+                                            # Обновляем остатки
+                                            wh_stock_entry[office_id] -= qty_to_be_transferred
+                                            amount_to_add -= qty_to_be_transferred
+                                            src_region_data_entry.stock_by_region_after -= qty_to_be_transferred
+                                            amount_to_be_sent -= qty_to_be_transferred
 
-                                                        qty_to_be_transferred = min(wh_stock_entry[office_id], amount_to_be_sent)
+                                            if office_id not in source_warehouse_used_in_transfer:
+                                                source_warehouse_used_in_transfer.append(office_id)
 
-                                                        if qty_to_be_transferred:
+                                            task_for_size.to_process = True
 
-                                                            dst_region_data_entry.stocks_to_be_sent_to_warehouse_dict[office_id] = qty_to_be_transferred
-
-                                                            wh_stock_entry[office_id] -= qty_to_be_transferred
-
-                                                            amount_to_add -= qty_to_be_transferred
-
-                                                            src_region_data_entry.stock_by_region_after -= qty_to_be_transferred
-
-                                                            amount_to_be_sent -= qty_to_be_transferred
-
-                                                            if office_id not in source_warehouse_used_in_transfer:
-                                                                source_warehouse_used_in_transfer.append(office_id)
-
-
-                                                            task_for_size.to_process = True
+                    # Если по размеру что-то набралось — добавляем в список задач для товара
                     if getattr(task_for_size, 'to_process', False):
                         current_tasks_for_product.append(task_for_size)
 
             except Exception as e:
                 print(f"Ошибка при обработке продукта {product.get('wb_article_id')}: {e}")
 
+            # Сохраняем задачи по товару
             if current_tasks_for_product:
-
-                self.create_stock_transfer_task_for_product(current_tasks_for_product, 
-                                                            warehouses_available_to_stock_transfer, 
-                                                            quota_dict=quota_dict,
-                                                            size_map=size_map) 
-
-            a = 1
+                self.create_stock_transfer_task_for_product(
+                    current_tasks_for_product,
+                    warehouses_available_to_stock_transfer,
+                    quota_dict=quota_dict,
+                    warehouse_src_sort_order=warehouse_src_sort_order,
+                    warehouse_dst_sort_order=warehouse_dst_sort_order,
+                    size_map=size_map)
 
         return None
+
     
 
     def create_product_collection_with_regions(self, all_product_entries: Iterable[Row],
@@ -577,7 +803,11 @@ class RegularTaskFactory:
         return keys_sorted
 
 
-    def create_stock_transfer_task_for_product(self, task_collection, warehouses_available_to_stock_transfer, quota_dict, size_map):
+    def create_stock_transfer_task_for_product(self, task_collection, 
+                                               warehouses_available_to_stock_transfer, 
+                                               warehouse_src_sort_order,
+                                               warehouse_dst_sort_order,
+                                               quota_dict, size_map):
 
         tasks_to_process = []
         
@@ -605,7 +835,7 @@ class RegularTaskFactory:
 
             region_id_to_transfer_task = entry['region_id']
 
-            warehouse_to_ids = warehouses_available_to_stock_transfer[region_id_to_transfer_task]
+            warehouse_to_ids = [warehouse_id for warehouse_id in warehouses_available_to_stock_transfer[region_id_to_transfer_task] if warehouse_id in warehouse_dst_sort_order]
 
             product_size_array = []
 
@@ -633,13 +863,17 @@ class RegularTaskFactory:
                 products=[products_to_task],
                 is_archived=0)
             
-            tasks_to_process.append(new_task) 
+            if new_task.warehouses_from_ids and new_task.warehouses_to_ids:
+            
+                tasks_to_process.append(new_task)
 
         if tasks_to_process:
             self.send_stock_transfer_request(tasks_to_process=tasks_to_process, quota_dict=quota_dict, size_map=size_map)
 
         
     def send_stock_transfer_request(self, tasks_to_process, quota_dict, size_map):
+
+        time.sleep(1)
 
         for task_idx, task in enumerate(tasks_to_process, start=1):
             self.logger.info("Обработка задания #%s", task_idx)
@@ -744,10 +978,10 @@ class RegularTaskFactory:
                                 print(f"POST: {warehouse_req_body}")
                                 self.logger.debug("Отправка заявки: %s", warehouse_req_body)
 
-                                # response = self.send_transfer_request(warehouse_req_body)
-                                # if response.status_code in [200, 201, 202, 204]:
-                                mock_true = False
-                                if mock_true:
+                                response = self.send_transfer_request(warehouse_req_body)
+                                if response.status_code in [200, 201, 202, 204]:
+                                # mock_true = True
+                                # if mock_true:
                                     for size in getattr(product, "sizes", []):
                                         if size.size_id in warehouse_entries:
                                             size.transfer_qty_left_real -= warehouse_entries[size.size_id]['count']
