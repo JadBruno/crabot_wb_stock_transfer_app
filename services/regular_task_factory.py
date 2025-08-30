@@ -128,7 +128,7 @@ class RegularTaskFactory:
                         cookies=self.cookie_jar,
                         headers=self.headers)
                     
-                    if response is None or response.status_code not in (200,201,202,203,204):
+                    if response is None:
                         self.logger.error("Полученный ответ от ВБ не соответсвует ожидание, отключаем скрипт")
                         sys.exit()
                     
