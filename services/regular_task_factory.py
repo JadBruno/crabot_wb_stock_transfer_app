@@ -77,8 +77,8 @@ class RegularTaskFactory:
 
             office_id_list = list(warehouse_priority_dict.keys())
             
+            # quota_dict = {507: {'src': 39835, 'dst': 0}, 117986: {'src': 46346, 'dst': 354353}, 120762: {'src': 10000, 'dst': 74184}, 2737: {'src': 24709, 'dst': 0}, 130744: {'src': 0, 'dst': 459945}, 686: {'src': 24992, 'dst': 0}, 1733: {'src': 24340, 'dst': 0}, 206348: {'src': 10000, 'dst': 72554}, 208277: {'src': 0, 'dst': 84267}, 301760: {'src': 0, 'dst': 93503}, 301809: {'src': 0, 'dst': 493275}, 301983: {'src': 0, 'dst': 3355}}
             quota_dict = dict(self.get_warehouse_quotas(office_id_list))
-            # quota_dict = {507: {'src': 39835, 'dst': 0}, 117986: {'src': 46346, 'dst': 354353}, 120762: {'src': 0, 'dst': 74184}, 2737: {'src': 24709, 'dst': 0}, 130744: {'src': 0, 'dst': 459945}, 686: {'src': 24992, 'dst': 0}, 1733: {'src': 24340, 'dst': 0}, 206348: {'src': 10000, 'dst': 72554}, 208277: {'src': 0, 'dst': 84267}, 301760: {'src': 0, 'dst': 93503}, 301809: {'src': 0, 'dst': 493275}, 301983: {'src': 0, 'dst': 3355}}
 
             self.remove_unavailable_warehouses_from_current_session(quota_dict=quota_dict,
                                                                         region_priority_dict=region_priority_dict,
@@ -727,50 +727,52 @@ class RegularTaskFactory:
 
 
 
-    def merge_transfers_on_the_way_with_region(
-        self,
-        products_collection: Dict[int, Dict[str, Any]],
-        transfers_rows: Iterable[Row]) -> None:
+    def merge_transfers_on_the_way_with_region(self,
+                                               products_collection: Dict[int, Dict[str, Any]],
+                                               transfers_rows: Iterable[Row]) -> None:
 
         for r in transfers_rows:
             if isinstance(r, Mapping):
                 wb_article_id   = r.get("wb_article_id") or r.get("nmId")
-                warehouse_to_id = r.get("warehouse_to_id")
+                warehouse_from_id = r.get("warehouse_from_id")
+                warehouse_to_id   = r.get("warehouse_to_id")
                 size_id = r.get("size_id")
                 qty = r.get("qty")
-                region_id = r.get("region_id")  # уже приходит из LEFT JOIN
+                to_region_id   = r.get("to_region_id")   or r.get("region_id")  
+                from_region_id = r.get("from_region_id")
             else:
+                # ожидаем не меньше 8 полей 
                 if len(r) < 7:
                     continue
-                wb_article_id, _, warehouse_to_id, size_id, qty, region_id, _ = r[:7]
+                # индексы под новый SELECT:
+                # wb_article_id, warehouse_from_id, warehouse_to_id, size_id, qty, to_region_id, from_region_id, created_at
+                wb_article_id, warehouse_from_id, warehouse_to_id, size_id, qty, to_region_id, from_region_id = r[:7]
 
             # приведение и фильтры
             try:
-                wb_article_id   = int(wb_article_id)
-                warehouse_to_id = int(warehouse_to_id)
-                size_id         = int(size_id)
-                qty             = int(qty) if qty is not None else 0
+                wb_article_id     = int(wb_article_id)
+                warehouse_to_id   = int(warehouse_to_id)
+                warehouse_from_id = int(warehouse_from_id)
+                size_id           = int(size_id)
+                qty               = int(qty) if qty is not None else 0
             except (TypeError, ValueError):
                 continue
             if qty == 0:
                 continue
 
-            if region_id is None:
-                # регион обязателен
-                continue
+            # регионы обязательны
             try:
-                region_id = int(region_id)
+                to_region_id   = int(to_region_id)
+                from_region_id = int(from_region_id)
             except (TypeError, ValueError):
                 continue
 
-            # артикул 
+            # получаем/создаём артикул и размер
             art = products_collection.setdefault(wb_article_id, {
                 "wb_article_id": wb_article_id,
                 "total_qty": 0,
                 "sizes": {}
             })
-
-            # размер
             size_node = art["sizes"].setdefault(size_id, {
                 "wb_article_id": wb_article_id,
                 "size_id": size_id,
@@ -779,20 +781,44 @@ class RegularTaskFactory:
                 "regions": {}
             })
 
-            # регион 
-            region_node = size_node["regions"].setdefault(region_id, {
-                "region_id": region_id,
+            # ПЛЮС к складу и региону назначения ----
+            to_region_node = size_node["regions"].setdefault(to_region_id, {
+                "region_id": to_region_id,
                 "total_qty": 0,
-                "warehouses": {}
-            })
+                "warehouses": {}})
+            
+            to_region_node["warehouses"][warehouse_to_id] = to_region_node["warehouses"].get(warehouse_to_id, 0) + qty
+            to_region_node["total_qty"] += qty
+            size_node["total_qty"] += qty
+            art["total_qty"] += qty
 
-            # склад назначения 
-            region_node["warehouses"][warehouse_to_id] = region_node["warehouses"].get(warehouse_to_id, 0) + qty
+            # МИНУС со склада и региона отправителя ----
+            from_region_node = size_node["regions"].setdefault(from_region_id, {
+                "region_id": from_region_id,
+                "total_qty": 0,
+                "warehouses": {}})
 
-            # агрегаты
-            region_node["total_qty"] += qty
-            size_node["total_qty"]   += qty
-            art["total_qty"]         += qty
+            current_wh_qty = from_region_node["warehouses"].get(warehouse_from_id, 0)
+            delta = min(qty, current_wh_qty)  # чтобы не уйти в минус на уровне склада
+
+            # уменьшаем склад
+            new_wh_qty = current_wh_qty - delta
+            if new_wh_qty > 0:
+                from_region_node["warehouses"][warehouse_from_id] = new_wh_qty
+            else:
+                # обнуляем/удаляем ключ склада, если стало 0
+                if warehouse_from_id in from_region_node["warehouses"]:
+                    del from_region_node["warehouses"][warehouse_from_id]
+
+            # уменьшаем агрегаты по региону/размеру/артикулу в пределах доступного delta
+            from_region_node["total_qty"] = max(0, from_region_node["total_qty"] - delta)
+            size_node["total_qty"]        = max(0, size_node["total_qty"] - delta)
+            
+
+            # TODO логгирование случаев, когда товаров не хватает на складе для списания
+            # if delta < qty:
+                
+            #     pass
 
 
 
@@ -1137,6 +1163,25 @@ class RegularTaskFactory:
                             
         except Exception as e:
             self.logger.exception("Ошибка в create_single_size_entries: %s", e)
+
+
+    def send_transfer_request(self, request_body: dict):
+        self.logger.debug("Отправка transfer request: %s", request_body)
+        try:
+            response = self.api_controller.request(
+                base_url="https://seller-weekly-report.wildberries.ru",
+                method="POST",
+                endpoint="/ns/shifts/analytics-back/api/v1/order",
+                json=request_body,
+                cookies=self.cookie_jar,
+                headers=self.headers)
+            
+            self.logger.info("Ответ на transfer request: status=%s", getattr(response, "status_code", None))
+            return response
+
+        except Exception as e:
+            self.logger.exception("Ошибка в send_transfer_request: %s", e)
+            return None
 
 
 

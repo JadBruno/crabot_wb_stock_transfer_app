@@ -300,10 +300,14 @@ class MySQLController():
                 warehouse_to_id,
                 size_id,
                 qty,
-                awstww.region_id,
+                awstww.region_id AS to_region_id,
+                awstwf.region_id AS from_region_id,
                 created_at
             FROM mp_data.a_wb_stock_transfer_products_on_the_way
-            LEFT JOIN mp_data.a_wb_stock_transfer_wb_warehourses awstww ON awstww.wb_office_id  = mp_data.a_wb_stock_transfer_products_on_the_way.warehouse_to_id"""
+            LEFT JOIN mp_data.a_wb_stock_transfer_wb_warehourses awstww
+                ON awstww.wb_office_id = mp_data.a_wb_stock_transfer_products_on_the_way.warehouse_to_id
+            LEFT JOIN mp_data.a_wb_stock_transfer_wb_warehourses awstwf
+                ON awstwf.wb_office_id = mp_data.a_wb_stock_transfer_products_on_the_way.warehouse_from_id;"""
         
         try:
             return self.db.execute_query(sql)
@@ -391,7 +395,7 @@ class MySQLController():
                 ON awis.size_id = s.size_id
                 WHERE o.region_id IS NOT NULL
                 AND s.rn = 1
-                AND s.time_end > NOW() - INTERVAL 24 hour;"""
+                AND s.time_end = (SELECT MAX(time_end) FROM mp_data.a_wb_catalog_stocks);"""
         try:
             return self.db.execute_query(sql)
         except Exception:
