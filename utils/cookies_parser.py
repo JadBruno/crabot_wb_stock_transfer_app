@@ -51,9 +51,6 @@ class CookieDecryptor:
     def parse_cookie_string(cookie_string: str) -> RequestsCookieJar:
         jar = RequestsCookieJar()
         
-        logger = get_logger("CookieDecryptor")
-
-        logger.error(f"Parsing cookie string:\n{cookie_string}")
 
         lines = cookie_string.strip().splitlines()
 
