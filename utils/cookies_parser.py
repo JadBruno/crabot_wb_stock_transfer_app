@@ -53,8 +53,8 @@ class CookieDecryptor:
         
         logger = get_logger("CookieDecryptor")
 
-        logger.debug(f"Parsing cookie string:\n{cookie_string}")
-        
+        logger.error(f"Parsing cookie string:\n{cookie_string}")
+
         lines = cookie_string.strip().splitlines()
 
         for line in lines:
