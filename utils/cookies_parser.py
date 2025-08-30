@@ -7,6 +7,8 @@ from requests.cookies import RequestsCookieJar
 from datetime import datetime
 import time
 from typing import Union
+from utils.logger import get_logger
+
 
 class CookieDecryptor:
     def __init__(self, key_base64: str):
@@ -48,7 +50,11 @@ class CookieDecryptor:
     @staticmethod
     def parse_cookie_string(cookie_string: str) -> RequestsCookieJar:
         jar = RequestsCookieJar()
+        
+        logger = get_logger("CookieDecryptor")
 
+        logger.debug(f"Parsing cookie string:\n{cookie_string}")
+        
         lines = cookie_string.strip().splitlines()
 
         for line in lines:
