@@ -15,7 +15,7 @@ import json
 from models.regular_tasks.regular_tasks import RegularTaskForSize, RegionStock
 import math
 import pandas as pd
-
+import sys
 
 Row = Union[Mapping[str, Any], Sequence[Any]]
 
@@ -77,7 +77,7 @@ class RegularTaskFactory:
 
             office_id_list = list(warehouse_priority_dict.keys())
             
-            # quota_dict = dict(self.get_warehouse_quotas(office_id_list))
+            quota_dict = dict(self.get_warehouse_quotas(office_id_list))
             quota_dict = {507: {'src': 39835, 'dst': 0}, 117986: {'src': 46346, 'dst': 354353}, 120762: {'src': 0, 'dst': 74184}, 2737: {'src': 24709, 'dst': 0}, 130744: {'src': 0, 'dst': 459945}, 686: {'src': 24992, 'dst': 0}, 1733: {'src': 24340, 'dst': 0}, 206348: {'src': 10000, 'dst': 72554}, 208277: {'src': 0, 'dst': 84267}, 301760: {'src': 0, 'dst': 93503}, 301809: {'src': 0, 'dst': 493275}, 301983: {'src': 0, 'dst': 3355}}
 
             self.remove_unavailable_warehouses_from_current_session(quota_dict=quota_dict,
@@ -106,13 +106,18 @@ class RegularTaskFactory:
             for mode in modes:
                 try:
                     time.sleep(0.5)
-                    self.api_controller.request(
+                    response = self.api_controller.request(
                         base_url="https://seller-weekly-report.wildberries.ru",
                         method="OPTIONS",
                         endpoint="/ns/shifts/analytics-back/api/v1/quota",
                         params={"officeID": office_id, "type": mode},
                         cookies=self.cookie_jar,
                         headers=self.headers)
+                    
+                    if response is None or response.status_code not in (200,201,202,203,204):
+                        self.logger.error("Полученный ответ от ВБ не соответсвует ожидание, отключаем скрипт")
+                        sys.exit()
+                        
                         
                     self.logger.debug("OPTIONS квоты отправлен office_id=%s mode=%s", office_id, mode)
 
@@ -124,6 +129,10 @@ class RegularTaskFactory:
                         params={"officeID": office_id, "type": mode},
                         cookies=self.cookie_jar,
                         headers=self.headers)
+                    
+                    if response is None or response.status_code not in (200,201,202,203,204):
+                        self.logger.error("Полученный ответ от ВБ не соответсвует ожидание, отключаем скрипт")
+                        sys.exit()
                     
                     self.logger.debug("GET квоты получен office_id=%s mode=%s status=%s",
                                       office_id, mode, getattr(response, "status_code", None))
@@ -224,7 +233,7 @@ class RegularTaskFactory:
                                 warehouses_available_to_stock_transfer,
                                 quota_dict,
                                 size_map):
-        tasks = []
+        # tasks = []
 
         region_src_sort_order = self.sort_destinations_by_key(region_priority_dict, key='src_priority')
         region_dst_sort_order = self.sort_destinations_by_key(region_priority_dict, key='dst_priority')
@@ -233,6 +242,8 @@ class RegularTaskFactory:
         warehouse_dst_sort_order = self.sort_destinations_by_key(warehouse_priority_dict, key='dst_priority')
 
         for product in product_collection.values():
+
+            current_tasks_for_product = []
 
             source_warehouses_available_for_nmId = warehouse_src_sort_order.copy()
 
@@ -305,10 +316,6 @@ class RegularTaskFactory:
 
                                     available_donor_status = True
 
-                                    if product['wb_article_id'] == 9641815:
-
-                                        a = 1
-
                                     # for warehouse_id in warehouse_for_region_list: 
                                         
                                     #     days_available = task_for_size.availability_days_by_warehouse.get(warehouse_id, None) 
@@ -376,21 +383,21 @@ class RegularTaskFactory:
 
                                                             task_for_size.to_process = True
                     if getattr(task_for_size, 'to_process', False):
-                        tasks.append(task_for_size)
+                        current_tasks_for_product.append(task_for_size)
 
             except Exception as e:
                 print(f"Ошибка при обработке продукта {product.get('wb_article_id')}: {e}")
 
-            current_tasks_for_product = tasks
+            if current_tasks_for_product:
 
-            self.create_stock_transfer_task_for_product(current_tasks_for_product, 
-                                                        warehouses_available_to_stock_transfer, 
-                                                        quota_dict=quota_dict,
-                                                        size_map=size_map) 
+                self.create_stock_transfer_task_for_product(current_tasks_for_product, 
+                                                            warehouses_available_to_stock_transfer, 
+                                                            quota_dict=quota_dict,
+                                                            size_map=size_map) 
 
             a = 1
 
-        return tasks
+        return None
     
 
     def create_product_collection_with_regions(self, all_product_entries: Iterable[Row],
@@ -626,7 +633,7 @@ class RegularTaskFactory:
                 products=[products_to_task],
                 is_archived=0)
             
-            tasks_to_process.append(new_task)
+            tasks_to_process.append(new_task) 
 
         if tasks_to_process:
             self.send_stock_transfer_request(tasks_to_process=tasks_to_process, quota_dict=quota_dict, size_map=size_map)
@@ -664,7 +671,10 @@ class RegularTaskFactory:
                     
                     if status_code != 200:
                         self.logger.error("Не получилось получить актуальные стоки для nmID=%s", getattr(product, "product_wb_id", None))
-                        break
+                        if status_code not in (200,201,202,203,204):
+                            self.logger.error("Полученный ответ от ВБ не соответсвует ожидание, отключаем скрипт")
+                            sys.exit()
+                            break
                     
                     self.logger.debug("Стоки для nmID=%s: %s", getattr(product, "product_wb_id", None), product_stocks)
 
@@ -736,7 +746,7 @@ class RegularTaskFactory:
 
                                 # response = self.send_transfer_request(warehouse_req_body)
                                 # if response.status_code in [200, 201, 202, 204]:
-                                mock_true = True
+                                mock_true = False
                                 if mock_true:
                                     for size in getattr(product, "sizes", []):
                                         if size.size_id in warehouse_entries:
@@ -750,6 +760,9 @@ class RegularTaskFactory:
                                             product_on_the_way_entry = (product.product_wb_id, warehouse_entries[size.size_id]['count'], size_map[size.size_id], src_warehouse_id, dst_warehouse_id)
                                             
                                             products_on_the_way_array.append(product_on_the_way_entry)
+                                else:
+                                    self.logger.error("Полученный ответ от ВБ не соответсвует ожидание, отключаем скрипт")
+                                    sys.exit()
 
                             except Exception as e:
                                 print(f"Ошибка при отправке запроса: {e}")
