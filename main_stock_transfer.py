@@ -37,6 +37,8 @@ def main():
 
         mysql_controller.log_warehouse_state(quota_dict) # Залогировали состояние складов по квотам
 
+        regular_task_factory.quota_dict = quota_dict # Передали квоты в фабрику заданий
+
         regular_task_factory.run() # Запуск обработки регулярных заданий
 
 
