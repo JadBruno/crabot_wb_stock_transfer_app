@@ -10,8 +10,11 @@ from dependencies.dependencies import (api_controller,
                                         logger)
 
 from services.regular_task_factory import RegularTaskFactory
+from utils.logger import simple_logger
 
 def main():
+        logger.info("Запускаем main")
+        
         # Разовые задания
         # one_time_task_processor = OneTimeTaskProcessor(api_controller=api_controller,
         #                 db_controller=mysql_controller,
@@ -27,8 +30,14 @@ def main():
                                                   cookie_jar=cookie_jar,
                                                   headers=authorized_headers,
                                                   logger=logger)
+        
+        office_id_list = list(regular_task_factory.db_controller.get_warehouses_with_sort_order().keys()) # Забрали список складов с сортировкой
 
-        regular_task_factory.run4()
+        quota_dict = dict(regular_task_factory.get_warehouse_quotas(office_id_list)) # Забрали квоты по складам
+
+        mysql_controller.log_warehouse_state(quota_dict) # Залогировали состояние складов по квотам
+
+        regular_task_factory.run() # Запуск обработки регулярных заданий
 
 
 if __name__ == '__main__':

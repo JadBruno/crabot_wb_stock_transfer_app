@@ -2,6 +2,7 @@ from collections import defaultdict
 from infrastructure.db.mysql.base import SyncDatabase
 from models.tasks import TaskWithProducts, ProductToTask, ProductSizeInfo
 import json
+from utils.logger import simple_logger
 
 class MySQLController():
 
@@ -33,7 +34,7 @@ class MySQLController():
         return None
 
 
-
+    @simple_logger(logger_name=__name__)
     def get_all_tasks_with_products_dict(self) -> dict[int, TaskWithProducts]:
         # Получаем все задания
         tasks_query = """SELECT 
@@ -114,6 +115,7 @@ class MySQLController():
 
         return result
     
+    @simple_logger(logger_name=__name__)
     def update_transfer_qty_from_task(self, task: TaskWithProducts) -> int:
         if not task or not task.products:
             return False
@@ -160,6 +162,7 @@ class MySQLController():
             
             return False
 
+    @simple_logger(logger_name=__name__)
     def get_max_stock_article(self) -> tuple[int, int] | None:
         try:
             sql = """
@@ -183,6 +186,7 @@ class MySQLController():
             return None
         
 
+    @simple_logger(logger_name=__name__)
     def log_warehouse_state(self, quota_dict: dict[int, dict[str, int]]) -> bool:
         if not quota_dict:
             return False
@@ -204,7 +208,7 @@ class MySQLController():
         except Exception as e:
             return False
 
-
+    @simple_logger(logger_name=__name__)
     def insert_products_on_the_way(self,
                                    items: list[tuple[int, int, int, int, int]]) -> bool:
 
@@ -226,7 +230,7 @@ class MySQLController():
         except Exception:
             return False
         
-
+    @simple_logger(logger_name=__name__)
     def get_all_products_with_stocks(self):
 
         sql = """WITH stock_with_max_time_end AS (
@@ -249,7 +253,7 @@ class MySQLController():
             return False
             
         
-
+    @simple_logger(logger_name=__name__)
     def get_products_transfers_on_the_way(self):
         sql = """
             SELECT
@@ -268,7 +272,7 @@ class MySQLController():
             return False
         
 
-
+    @simple_logger(logger_name=__name__)
     def get_all_products_with_stocks_with_region(self):
 
         sql = """WITH stock_with_max_time_end AS (
@@ -291,7 +295,7 @@ class MySQLController():
         except Exception:
             return False
         
-
+    @simple_logger(logger_name=__name__)
     def get_products_transfers_on_the_way_with_region(self):
         sql = """
             SELECT
@@ -314,7 +318,7 @@ class MySQLController():
         except Exception:
             return False
         
-
+    @simple_logger(logger_name=__name__)
     def get_current_regular_task(self):
 
         sql = """
@@ -351,7 +355,8 @@ class MySQLController():
             return result[0]  
         except Exception:
             return None
-        
+
+    @simple_logger(logger_name=__name__)
     def get_warehouses_regions_map(self):
         sql = """
             SELECT wb_office_id, region_id
@@ -363,6 +368,8 @@ class MySQLController():
         except Exception:
             return False
         
+
+    @simple_logger(logger_name=__name__)
     def get_real_warehouses_regions_map(self):
         sql = """
             SELECT warehouse_id, region_id
@@ -373,7 +380,7 @@ class MySQLController():
         except Exception:
             return False
         
-
+    @simple_logger(logger_name=__name__)
     def get_stocks_for_regular_tasks(self):
         sql = """WITH stocks AS (SELECT
                                     wb_article_id,
@@ -400,7 +407,8 @@ class MySQLController():
             return self.db.execute_query(sql)
         except Exception:
             return False
-        
+
+    @simple_logger(logger_name=__name__)
     def get_regions_with_sort_order(self):
         sql = """
             SELECT region_id, src_priority, dst_priority
@@ -419,6 +427,9 @@ class MySQLController():
         except Exception:
             return False
         
+
+
+    @simple_logger(logger_name=__name__)   
     def get_warehouses_with_sort_order(self):
         sql = """
             SELECT office_id, src_priority, dst_priority
@@ -438,7 +449,7 @@ class MySQLController():
             return False
         
 
-
+    @simple_logger(logger_name=__name__)
     def get_office_with_regions_map(self):
         sql = """
             SELECT office_id, region_id
@@ -456,7 +467,7 @@ class MySQLController():
             return False
         
 
-
+    @simple_logger(logger_name=__name__)
     def get_stock_availability_data(self):
         sql = """
             SELECT wb_article_id, size_id, warehouse_id, time_beg, time_end
@@ -468,7 +479,7 @@ class MySQLController():
         except Exception:
             return False
         
-
+    @simple_logger(logger_name=__name__)
     def get_size_map(self):
         sql = """
             SELECT size, size_id
@@ -484,7 +495,7 @@ class MySQLController():
             return False
         
 
-
+    @simple_logger(logger_name=__name__)
     def get_size_sales_for_warehouse(self):
         sql = """
             SELECT

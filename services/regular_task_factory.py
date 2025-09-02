@@ -16,6 +16,7 @@ from models.regular_tasks.regular_tasks import RegularTaskForSize, RegionStock
 import math
 import pandas as pd
 import sys
+from utils.logger import simple_logger
 
 Row = Union[Mapping[str, Any], Sequence[Any]]
 
@@ -32,9 +33,10 @@ class RegularTaskFactory:
         self.headers = headers
         self.logger = logger
         self.MIN_AVAILABILITY_DAY_COUNT_FOR_TRANSFER = 14
+        self.quota_dict = None
 
-
-    def run4(self):
+    @simple_logger(logger_name=__name__)
+    def run(self):
             # карта размеров айди - тег
             size_map = self.db_controller.get_size_map()
 
@@ -76,7 +78,10 @@ class RegularTaskFactory:
             office_id_list = list(warehouse_priority_dict.keys())
             
             # quota_dict = {507: {'src': 39835, 'dst': 0}, 117986: {'src': 46346, 'dst': 354353}, 120762: {'src': 10000, 'dst': 74184}, 2737: {'src': 24709, 'dst': 0}, 130744: {'src': 0, 'dst': 459945}, 686: {'src': 24992, 'dst': 0}, 1733: {'src': 24340, 'dst': 0}, 206348: {'src': 10000, 'dst': 72554}, 208277: {'src': 0, 'dst': 84267}, 301760: {'src': 0, 'dst': 93503}, 301809: {'src': 0, 'dst': 493275}, 301983: {'src': 0, 'dst': 3355}}
-            quota_dict = dict(self.get_warehouse_quotas(office_id_list))
+            if self.quota_dict is None:
+                quota_dict = dict(self.get_warehouse_quotas(office_id_list))
+            else:
+                quota_dict = self.quota_dict
 
             self.remove_unavailable_warehouses_from_current_session(quota_dict=quota_dict,
                                                                         region_priority_dict=region_priority_dict,
@@ -95,6 +100,7 @@ class RegularTaskFactory:
 
             a = 1
 
+    @simple_logger(logger_name=__name__)
     def get_warehouse_quotas(self, office_id_list):
         self.logger.debug("Старт get_warehouse_quotas() для офисов: %s", office_id_list)
         quota_dict = defaultdict(dict)
@@ -146,7 +152,7 @@ class RegularTaskFactory:
         return quota_dict
 
 
-
+    @simple_logger(logger_name=__name__)
     def build_article_days(self,
                            stock_time_data: Union[Sequence[Mapping], Sequence[tuple]],
                             last_n_days: Optional[int] = 30) -> Dict[Tuple[int, int, int], Dict[str, Any]]:
@@ -194,6 +200,7 @@ class RegularTaskFactory:
         return avail_index
 
 
+    @simple_logger(logger_name=__name__)
     def remove_unavailable_warehouses_from_current_session(self, quota_dict,
                                                            region_priority_dict,
                                                            warehouses_available_to_stock_transfer,
@@ -401,6 +408,7 @@ class RegularTaskFactory:
 
     #     return None
     
+    @simple_logger(logger_name=__name__)
     def create_task_for_product(self,
                             product_collection,
                             task_row,
@@ -623,7 +631,7 @@ class RegularTaskFactory:
         return None
 
     
-
+    @simple_logger(logger_name=__name__)
     def create_product_collection_with_regions(self, all_product_entries: Iterable[Row],
                                                warehouses_available_to_stock_transfer: Dict,
                                                availability_index: Optional[Dict[Tuple[int, int, int], Dict[str, Any]]] = None,
@@ -710,7 +718,8 @@ class RegularTaskFactory:
                                                                    warehouses_available_to_stock_transfer=warehouses_available_to_stock_transfer)
 
         return products
-    
+
+    @simple_logger(logger_name=__name__)
     def fill_empty_regions_for_products_in_product_collection(self, products, warehouses_available_to_stock_transfer):
 
         for product in products.values():
@@ -724,7 +733,7 @@ class RegularTaskFactory:
                                 size['regions'][region_id] = empty_region_entry
 
 
-
+    @simple_logger(logger_name=__name__)
     def merge_transfers_on_the_way_with_region(self,
                                                products_collection: Dict[int, Dict[str, Any]],
                                                transfers_rows: Iterable[Row]) -> None:
@@ -819,14 +828,14 @@ class RegularTaskFactory:
             #     pass
 
 
-
+    @simple_logger(logger_name=__name__)
     def sort_destinations_by_key(self, some_tuple, key):
     # Берём только те id, у которых значение не None
         filtered = {k: v for k, v in some_tuple.items() if v.get(key) is not None}
         keys_sorted = sorted(filtered, key=lambda k: filtered[k][key])
         return keys_sorted
 
-
+    @simple_logger(logger_name=__name__)
     def create_stock_transfer_task_for_product(self, task_collection, 
                                                warehouses_available_to_stock_transfer, 
                                                warehouse_src_sort_order,
@@ -894,7 +903,8 @@ class RegularTaskFactory:
         if tasks_to_process:
             self.send_stock_transfer_request(tasks_to_process=tasks_to_process, quota_dict=quota_dict, size_map=size_map)
 
-        
+
+    @simple_logger(logger_name=__name__)
     def send_stock_transfer_request(self, tasks_to_process, quota_dict, size_map):
 
         time.sleep(1)
@@ -1039,7 +1049,7 @@ class RegularTaskFactory:
 
         self.logger.info("Завершение обработки регулярного задания()")
 
-
+    @simple_logger(logger_name=__name__)
     def get_available_warehouses_by_quota(self, quota_dict: Dict[int, Dict[str, int]], task: TaskWithProducts) -> Tuple[List[int], List[int]]:
         self.logger.debug("Расчёт доступных складов по квотам")
         try:
@@ -1053,6 +1063,7 @@ class RegularTaskFactory:
             return [], []
         
 
+    @simple_logger(logger_name=__name__)
     def fetch_stocks_by_nmid(self, nmid: int, warehouses_in_task_list: list):
         self.logger.debug("Запрос стоков по nmID=%s для складов: %s", nmid, warehouses_in_task_list)
         try:
@@ -1087,7 +1098,7 @@ class RegularTaskFactory:
             return None
 
 
-
+    @simple_logger(logger_name=__name__)
     def create_transfer_request_body(self, src_warehouse_id, dst_wrh_id, product, warehouse_entries):
         self.logger.debug("Формирование тела transfer request: src=%s dst=%s nmID=%s",
                           src_warehouse_id, dst_wrh_id, getattr(product, "product_wb_id", None))
@@ -1109,6 +1120,7 @@ class RegularTaskFactory:
             self.logger.exception("Ошибка при формировании тела заявки: %s", e)
 
 
+    @simple_logger(logger_name=__name__)
     def create_single_size_entries(self,
                                    src_warehouse_id: int,
                                    size: ProductSizeInfo,
@@ -1162,7 +1174,7 @@ class RegularTaskFactory:
         except Exception as e:
             self.logger.exception("Ошибка в create_single_size_entries: %s", e)
 
-
+    @simple_logger(logger_name=__name__)
     def send_transfer_request(self, request_body: dict):
         self.logger.debug("Отправка transfer request: %s", request_body)
         try:
