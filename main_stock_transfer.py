@@ -17,25 +17,20 @@ from utils.logger import simple_logger
 def main():
         logger.info("Запускаем main")
         size_map=mysql_controller.get_size_map()
-        # delivered_supply_processor = DeliveredSupplyProcessor(db_controller=mysql_controller,
-        #                                                      api_controller=api_controller,
-        #                                                      wb_analytics_api_key=wb_analytics_api_key,
-        #                                                      logger=logger,
-        #                                                      size_map=size_map)
-        
-        # delivered_supply_processor.process_delivered_supplies()
 
+        delivered_supply_processor = DeliveredSupplyProcessor(db_controller=mysql_controller,
+                                                             api_controller=api_controller,
+                                                             wb_analytics_api_key=wb_analytics_api_key,
+                                                             logger=logger,
+                                                             size_map=size_map)
+        
+        delivered_supply_processor.process_delivered_supplies()
 
-        
-        # Разовые задания
-        # one_time_task_processor = OneTimeTaskProcessor(api_controller=api_controller,
-        #                 db_controller=mysql_controller,
-        #                 cookie_jar=cookie_jar,
-        #                 headers=authorized_headers,
-        #                 logger=logger)
-        # one_time_task_processor.process_one_time_tasks()
-        
-        # Регулярные задания
+        one_time_task_processor = OneTimeTaskProcessor(api_controller=api_controller,
+                        db_controller=mysql_controller,
+                        cookie_jar=cookie_jar,
+                        headers=authorized_headers,
+                        logger=logger)
 
         regular_task_factory = RegularTaskFactory(db_controller=mysql_controller, 
                                                   api_controller=api_controller,
@@ -49,7 +44,9 @@ def main():
 
         quota_dict = dict(regular_task_factory.get_warehouse_quotas(office_id_list)) # Забрали квоты по складам
 
-        # mysql_controller.log_warehouse_state(quota_dict) # Залогировали состояние складов по квотам
+        mysql_controller.log_warehouse_state(quota_dict) # Залогировали состояние складов по квотам
+
+        one_time_task_processor.process_one_time_tasks(quota_dict=quota_dict) # Запуск обработки разовых заданий
 
         regular_task_factory.quota_dict = quota_dict # Передали квоты в фабрику заданий
 

@@ -106,6 +106,8 @@ class DeliveredSupplyProcessor:
 
         updated_product_on_the_way_entries = []
 
+        new_destination_list = []
+
         index_totals = defaultdict(int)
 
         for supply_entry in filtered_wb_supply_data:
@@ -129,6 +131,8 @@ class DeliveredSupplyProcessor:
                 continue
 
             if dst_address not in wb_supply_destinations_by_region:
+                new_adderss_tuple = (dst_address,)
+                new_destination_list.append(new_adderss_tuple)
                 continue
 
             dst_region_id = wb_supply_destinations_by_region.get(dst_address)
@@ -160,6 +164,7 @@ class DeliveredSupplyProcessor:
 
                     updated_product_on_the_way_entries.append(entry)
 
+        self.db_controller.insert_new_supply_destinations(new_destination_list)
 
         return updated_product_on_the_way_entries
 

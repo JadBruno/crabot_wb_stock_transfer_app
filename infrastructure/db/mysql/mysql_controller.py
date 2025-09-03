@@ -223,7 +223,7 @@ class MySQLController():
                                                                             warehouse_to_id)
                 VALUES (%s, %s, %s, %s, %s, %s)"""
 
-        params = [(int(nm),int(qty),int(qty),  int(size_id), int(w_from), int(w_to)) for nm, qty, size_id, w_from, w_to in items]
+        params = [(int(nm), int(qty), int(qty),  int(size_id), int(w_from), int(w_to)) for nm, qty, size_id, w_from, w_to in items]
 
         try:
             self.db.execute_many(sql, params)
@@ -619,5 +619,24 @@ class MySQLController():
                 
             return result_dict
         except Exception:
+            return False
+        
+
+    @simple_logger(logger_name=__name__)
+    def insert_new_supply_destinations(self, new_destination_list) -> bool:
+        if not new_destination_list:
+            return False
+
+        try:
+            sql = """INSERT INTO mp_data.a_wb_stock_transfer_wb_supply_destination_cl (destination_name)
+                VALUES (%s);"""
+
+            params = [(name,) for name in new_destination_list]
+
+            self.db.execute_many(sql, params)
+
+            return True
+
+        except Exception as e:
             return False
 
