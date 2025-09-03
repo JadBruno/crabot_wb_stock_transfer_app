@@ -117,7 +117,7 @@ class RegularTaskFactory:
         for office_id in office_id_list:
             for mode in modes:
                 try:
-                    time.sleep(0.5)
+                    time.sleep(3)
                     response = self.api_controller.request(
                         base_url="https://seller-weekly-report.wildberries.ru",
                         method="OPTIONS",
@@ -133,7 +133,6 @@ class RegularTaskFactory:
                         
                     self.logger.debug("OPTIONS квоты отправлен office_id=%s mode=%s", office_id, mode)
 
-                    time.sleep(0.5)
                     response = self.api_controller.request(
                         base_url="https://seller-weekly-report.wildberries.ru",
                         method="GET",
