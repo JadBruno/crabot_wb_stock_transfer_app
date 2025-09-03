@@ -26,7 +26,8 @@ class RegularTaskFactory:
                  api_controller: SyncAPIController,
                  cookie_jar: RequestsCookieJar,
                  headers: Dict,
-                 logger):
+                 logger,
+                 size_map: Dict[int, str]):
         self.db_controller = db_controller
         self.api_controller = api_controller
         self.cookie_jar = cookie_jar
@@ -34,11 +35,15 @@ class RegularTaskFactory:
         self.logger = logger
         self.MIN_AVAILABILITY_DAY_COUNT_FOR_TRANSFER = 14
         self.quota_dict = None
+        self.size_map = size_map  # карта размеров айди - тег
 
     @simple_logger(logger_name=__name__)
     def run(self):
             # карта размеров айди - тег
-            size_map = self.db_controller.get_size_map()
+            if size_map is None:
+                self.size_map = self.db_controller.get_size_map()
+                
+            size_map = self.size_map
 
             # словари приоритетов в регионах
             region_priority_dict = self.db_controller.get_regions_with_sort_order()
@@ -52,6 +57,8 @@ class RegularTaskFactory:
             stock_availability_df = self.build_article_days(stock_time_data=stock_availability_data, last_n_days=30)
 
             sales_data = self.db_controller.get_size_sales_for_warehouse()
+
+            blocked_warehouses_for_skus = self.db_controller.get_blocked_warehouses_for_skus()
 
             orders_index = {(row["nmId"], row["techSize_id"], row["office_id"]): row["order_count"]
                             for row in sales_data}
@@ -95,7 +102,8 @@ class RegularTaskFactory:
                                                              warehouse_priority_dict=warehouse_priority_dict,
                                                              warehouses_available_to_stock_transfer=warehouses_available_to_stock_transfer,
                                                              quota_dict=quota_dict,
-                                                             size_map=size_map)  
+                                                             size_map=size_map,
+                                                             blocked_warehouses_for_skus=blocked_warehouses_for_skus)  
 
 
             a = 1
@@ -416,13 +424,12 @@ class RegularTaskFactory:
                             warehouse_priority_dict,
                             warehouses_available_to_stock_transfer,
                             quota_dict,
-                            size_map):
+                            size_map,
+                            blocked_warehouses_for_skus):
         """
         Создаёт задачи перемещения по товарам/размерам.
         - Если регион-получатель не имеет ни одного склада из warehouse_dst_sort_order,
-        регистрируем can_receive = False и пропускаем его.
-        - Безопасные обращения к словарям (.get(...)).
-        - Фикс бага с region_id -> dst_region_id для dst-складов.
+        регистрируем can_receive = False и пропускаем его
         """
 
     
@@ -442,6 +449,9 @@ class RegularTaskFactory:
 
             try:
                 for size_id, size_data in product.get("sizes", {}).items():
+
+                    block_warehouses_for_sku_index = f"{product.get('wb_article_id')}_{size_id}"
+                    blocked_src_warehouses_for_sku = blocked_warehouses_for_skus.get(block_warehouses_for_sku_index, [])
 
                     task_for_size = RegularTaskForSize(
                         nmId=product.get("wb_article_id"),
@@ -476,22 +486,15 @@ class RegularTaskFactory:
                         region_obj.min_share = task_row.get(min_key, 0) or 0
 
                         # Целевые/минимальные стоки в штуках
-                        region_obj.target_stock_by_region = math.floor(
-                            task_for_size.total_stock_for_product * region_obj.target_share
-                        )
-                        region_obj.min_stock_by_region = math.floor(
-                            task_for_size.total_stock_for_product * region_obj.min_share
-                        )
+                        region_obj.target_stock_by_region = math.floor(task_for_size.total_stock_for_product * region_obj.target_share)
+
+                        region_obj.min_stock_by_region = math.floor(task_for_size.total_stock_for_product * region_obj.min_share)
 
                         # Сколько нужно довезти до цели
-                        region_obj.amount_to_deliver = math.floor(
-                            max(0, region_obj.target_stock_by_region - region_obj.stock_by_region_before)
-                        )
+                        region_obj.amount_to_deliver = math.floor(max(0, region_obj.target_stock_by_region - region_obj.stock_by_region_before))
 
-                        region_obj.is_below_min = (
-                            region_obj.stock_by_region_before < region_obj.min_stock_by_region
-                            and region_obj.amount_to_deliver > 0
-                        )
+                        region_obj.is_below_min = (region_obj.stock_by_region_before < region_obj.min_stock_by_region
+                                                   and region_obj.amount_to_deliver > 0)
 
                         # Флаг по умолчанию: регион может принимать
                         region_obj.can_receive = True
@@ -529,7 +532,7 @@ class RegularTaskFactory:
 
                                 # Ограничиваем список складов-источников по доступности и приоритету
                                 current_src_entry_warehouse_sort = [office_id for office_id in warehouse_src_sort_order
-                                    if office_id in (warehouses_available_to_stock_transfer.get(src_region_id, []) or [])]
+                                    if (office_id in (warehouses_available_to_stock_transfer.get(src_region_id, []) or []) and office_id not in blocked_src_warehouses_for_sku)]
 
                                 # Если регион-источник вообще не описан для размера — дальше смысла нет
                                 if src_region_id not in task_for_size.region_data:
@@ -571,12 +574,14 @@ class RegularTaskFactory:
 
                                 amount_available_to_be_sent = min(
                                     total_stock_for_region_in_allowed_warehouses,
-                                    transferrable_amount
-                                )
+                                    transferrable_amount)
+                                
                                 amount_to_be_sent = min(amount_available_to_be_sent, amount_to_add)
 
                                 if amount_to_be_sent <= 0:
                                     continue
+                                
+                                amount_to_be_sent_start = amount_to_be_sent
 
                                 # Разложение по складам-источникам в порядке приоритета
                                 for office_id in current_src_entry_warehouse_sort:
@@ -609,7 +614,8 @@ class RegularTaskFactory:
                                             if office_id not in source_warehouse_used_in_transfer:
                                                 source_warehouse_used_in_transfer.append(office_id)
 
-                                            task_for_size.to_process = True
+                                            if amount_to_be_sent != amount_to_be_sent_start:
+                                                task_for_size.to_process = True
 
                     # Если по размеру что-то набралось — добавляем в список задач для товара
                     if getattr(task_for_size, 'to_process', False):
@@ -1012,10 +1018,10 @@ class RegularTaskFactory:
                                 print(f"POST: {warehouse_req_body}")
                                 self.logger.debug("Отправка заявки: %s", warehouse_req_body)
 
-                                response = self.send_transfer_request(warehouse_req_body)
-                                if response.status_code in [200, 201, 202, 204]:
-                                # mock_true = True
-                                # if mock_true:
+                                # response = self.send_transfer_request(warehouse_req_body)
+                                # if response.status_code in [200, 201, 202, 204]:
+                                mock_true = True
+                                if mock_true:
                                     for size in getattr(product, "sizes", []):
                                         if size.size_id in warehouse_entries:
                                             size.transfer_qty_left_real -= warehouse_entries[size.size_id]['count']

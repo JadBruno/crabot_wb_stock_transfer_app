@@ -16,6 +16,7 @@ class Dependencies:
         self._mysql_controller = None
         self._cookie_jar = None
         self._authorized_headers = None
+        self._wb_analytics_api_key = None
 
 
     @property
@@ -58,7 +59,12 @@ class Dependencies:
         # headers_copy['AuthorizeV3'] = self.cookie_utils.extract_tokenV3(decrypted_cookies)
         return headers_copy
     
-
+    @cached_property
+    def wb_analytics_api_key(self):
+        if self._wb_analytics_api_key is None:
+            self._wb_analytics_api_key = self.access_data_loader.get_wb_analytics_api_key()
+        return self._wb_analytics_api_key
+    
 
 deps = Dependencies()
 
@@ -67,3 +73,4 @@ cookie_jar = deps.cookie_jar
 authorized_headers = deps.authorized_headers
 mysql_controller = deps.mysql_controller
 api_controller = SyncAPIController()
+wb_analytics_api_key = deps.wb_analytics_api_key

@@ -7,13 +7,27 @@ from dependencies.dependencies import (api_controller,
                                         mysql_controller,
                                         cookie_jar,
                                         authorized_headers,
+                                        wb_analytics_api_key,
                                         logger)
 
 from services.regular_task_factory import RegularTaskFactory
+from services.delivered_supply_process import DeliveredSupplyProcessor
 from utils.logger import simple_logger
 
 def main():
         logger.info("Запускаем main")
+        size_map=mysql_controller.get_size_map()
+        delivered_supply_processor = DeliveredSupplyProcessor(db_controller=mysql_controller,
+                                                             api_controller=api_controller,
+                                                             wb_analytics_api_key=wb_analytics_api_key,
+                                                             logger=logger,
+                                                             size_map=size_map)
+        
+        delivered_supply_processor.process_delivered_supplies()
+
+        
+
+        # TODO Обращаемся к апишнику, смотрим завершенные перемещения, вносим в БД
         
         # Разовые задания
         # one_time_task_processor = OneTimeTaskProcessor(api_controller=api_controller,
@@ -29,13 +43,15 @@ def main():
                                                   api_controller=api_controller,
                                                   cookie_jar=cookie_jar,
                                                   headers=authorized_headers,
+                                                  size_map=size_map,
                                                   logger=logger)
+        
         
         office_id_list = list(regular_task_factory.db_controller.get_warehouses_with_sort_order().keys()) # Забрали список складов с сортировкой
 
         quota_dict = dict(regular_task_factory.get_warehouse_quotas(office_id_list)) # Забрали квоты по складам
 
-        mysql_controller.log_warehouse_state(quota_dict) # Залогировали состояние складов по квотам
+        # mysql_controller.log_warehouse_state(quota_dict) # Залогировали состояние складов по квотам
 
         regular_task_factory.quota_dict = quota_dict # Передали квоты в фабрику заданий
 

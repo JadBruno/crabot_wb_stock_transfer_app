@@ -217,12 +217,13 @@ class MySQLController():
 
         sql = """INSERT INTO mp_data.a_wb_stock_transfer_products_on_the_way(nmId, 
                                                                             qty,
+                                                                            qty_left_to_deliver,
                                                                             size_id,
                                                                             warehouse_from_id, 
                                                                             warehouse_to_id)
-                VALUES (%s, %s, %s, %s, %s)"""
+                VALUES (%s, %s, %s, %s, %s, %s)"""
 
-        params = [(int(nm),int(qty), int(size_id), int(w_from), int(w_to)) for nm, qty, size_id, w_from, w_to in items]
+        params = [(int(nm),int(qty),int(qty),  int(size_id), int(w_from), int(w_to)) for nm, qty, size_id, w_from, w_to in items]
 
         try:
             self.db.execute_many(sql, params)
@@ -257,17 +258,54 @@ class MySQLController():
     def get_products_transfers_on_the_way(self):
         sql = """
             SELECT
+                entry_id,
                 nmId AS wb_article_id,
                 warehouse_from_id,
                 warehouse_to_id,
                 size_id,
-                qty,
+                qty_left_to_deliver as qty,
                 created_at
             FROM mp_data.a_wb_stock_transfer_products_on_the_way
             WHERE created_at > NOW() - INTERVAL 14 day;"""
         
         try:
             return self.db.execute_query(sql)
+        except Exception:
+            return False
+        
+    @simple_logger(logger_name=__name__)
+    def get_products_transfers_on_the_way_dict(self):
+        sql = """
+            SELECT
+                entry_id,
+                nmId AS wb_article_id,
+                warehouse_from_id,
+                warehouse_to_id,
+                o.region_id as region_to_id,
+                size_id,
+                qty,
+                qty_left_to_deliver,
+                created_at,
+                finished_at,
+                is_finished
+            FROM mp_data.a_wb_stock_transfer_products_on_the_way p
+            LEFT JOIN mp_data.a_wb_stock_transfer_wb_offices o 
+            ON p.warehouse_to_id = o.office_id 
+            WHERE created_at > NOW() - INTERVAL 14 day
+            ORDER BY entry_id DESC;"""
+        
+        try:
+            result = self.db.execute_query(sql)
+            result_dict = defaultdict(list)
+
+            for entry in result:
+                date = entry['created_at'].strftime('%Y-%m-%d')
+                index = f"{entry['wb_article_id']}_{entry['size_id']}_rto{entry['region_to_id']}_d{date}" # Индекс по SKU, размеру и складам
+                result_dict[index].append(entry)
+
+            return result_dict
+
+
         except Exception:
             return False
         
@@ -303,7 +341,7 @@ class MySQLController():
                 warehouse_from_id,
                 warehouse_to_id,
                 size_id,
-                qty,
+                qty_left_to_deliver AS qty,
                 awstww.region_id AS to_region_id,
                 awstwf.region_id AS from_region_id,
                 created_at
@@ -432,7 +470,7 @@ class MySQLController():
     @simple_logger(logger_name=__name__)   
     def get_warehouses_with_sort_order(self):
         sql = """
-            SELECT office_id, src_priority, dst_priority
+            SELECT office_id, src_priority, dst_priority, src_ignore, dst_ignore
             FROM mp_data.a_wb_stock_transfer_wb_offices offices
             WHERE src_priority is NOT NULL 
             AND dst_priority is NOT NULL;
@@ -443,6 +481,10 @@ class MySQLController():
             for entry in result:
                 result_dict[entry['office_id']] = {'src_priority':entry['src_priority'],
                                                     'dst_priority':entry['dst_priority']}
+                if entry.get('src_ignore'):
+                    result_dict[entry['office_id']]['src_priority'] = None
+                if entry.get('dst_ignore'):
+                    result_dict[entry['office_id']]['dst_priority'] = None
 
             return result_dict
         except Exception:
@@ -516,6 +558,65 @@ class MySQLController():
             return result
         except Exception:
             return False
+        
 
-    
-    
+
+    @simple_logger(logger_name=__name__)
+    def get_blocked_warehouses_for_skus(self):
+        sql = """SELECT * FROM mp_data.a_wb_stock_transfer_products_on_the_way 
+                WHERE created_at > NOW() - INTERVAL 1 day;"""
+        try:
+            result = self.db.execute_query(sql)
+            result_dict = defaultdict(list)
+            for entry in result:
+                index = f"{entry['nmId']}_{entry['size_id']}" # Индекс по SKU и размеру
+                result_dict[index].append(entry['warehouse_from_id'])
+            
+            return result_dict
+        except Exception:
+            return False
+        
+
+
+    @simple_logger(logger_name=__name__)
+    def update_product_transfer_entries(self, entries):
+
+        if not entries:
+            return False
+
+        try:
+            sql = """UPDATE mp_data.a_wb_stock_transfer_products_on_the_way
+                        SET qty_left_to_deliver = %s,
+                            is_finished = %s,
+                            finished_at = %s
+                        WHERE entry_id = %s;"""
+
+            params: list[tuple[int, int, str, int]] = []
+            for entry in entries:
+                params.append((int(entry['qty_left_to_deliver']),
+                               int(entry.get('is_finished', 0)),
+                               entry.get('finished_at', None),
+                               int(entry['entry_id'])))
+
+            self.db.execute_many(sql, params)
+
+            return True
+
+        except Exception as e:
+            
+            return False
+        
+
+    @simple_logger(logger_name=__name__)
+    def get_wb_supply_destinations(self):
+        sql = """SELECT * FROM mp_data.a_wb_stock_transfer_wb_supply_destination_cl"""
+        try:
+            result = self.db.execute_query(sql)
+            result_dict = {}
+            for entry in result:
+                result_dict[entry['destination_name']] = entry['region_id']
+                
+            return result_dict
+        except Exception:
+            return False
+
