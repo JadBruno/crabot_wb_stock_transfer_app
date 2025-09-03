@@ -17,17 +17,15 @@ from utils.logger import simple_logger
 def main():
         logger.info("Запускаем main")
         size_map=mysql_controller.get_size_map()
-        delivered_supply_processor = DeliveredSupplyProcessor(db_controller=mysql_controller,
-                                                             api_controller=api_controller,
-                                                             wb_analytics_api_key=wb_analytics_api_key,
-                                                             logger=logger,
-                                                             size_map=size_map)
+        # delivered_supply_processor = DeliveredSupplyProcessor(db_controller=mysql_controller,
+        #                                                      api_controller=api_controller,
+        #                                                      wb_analytics_api_key=wb_analytics_api_key,
+        #                                                      logger=logger,
+        #                                                      size_map=size_map)
         
-        delivered_supply_processor.process_delivered_supplies()
+        # delivered_supply_processor.process_delivered_supplies()
 
-        
 
-        # TODO Обращаемся к апишнику, смотрим завершенные перемещения, вносим в БД
         
         # Разовые задания
         # one_time_task_processor = OneTimeTaskProcessor(api_controller=api_controller,

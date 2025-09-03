@@ -266,7 +266,8 @@ class MySQLController():
                 qty_left_to_deliver as qty,
                 created_at
             FROM mp_data.a_wb_stock_transfer_products_on_the_way
-            WHERE created_at > NOW() - INTERVAL 14 day;"""
+            WHERE created_at > NOW() - INTERVAL 14 day
+            AND is_finished != 1;"""
         
         try:
             return self.db.execute_query(sql)
