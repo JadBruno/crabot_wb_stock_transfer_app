@@ -30,7 +30,7 @@ def main():
                                                              logger=logger,
                                                              size_map=size_map)
         
-        # delivered_supply_processor.process_delivered_supplies()
+        delivered_supply_processor.process_delivered_supplies()
 
         one_time_task_processor = OneTimeTaskProcessor(api_controller=api_controller,
                         db_controller=mysql_controller,
