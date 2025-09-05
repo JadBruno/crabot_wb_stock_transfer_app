@@ -132,7 +132,8 @@ class DeliveredSupplyProcessor:
 
             if dst_address not in wb_supply_destinations_by_region:
                 new_adderss_tuple = (dst_address,)
-                new_destination_list.append(new_adderss_tuple)
+                if new_adderss_tuple not in new_destination_list:
+                    new_destination_list.append(new_adderss_tuple)
                 continue
 
             dst_region_id = wb_supply_destinations_by_region.get(dst_address)

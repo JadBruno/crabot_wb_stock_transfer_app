@@ -6,8 +6,8 @@ class AccessDataLoader:
 
                 self.__logger = logger
                 self.__mysql_connect_params_dict = self.fill_mysql_access_data()
-                self.__cookies = self.fill_cookie_access_data()
-                self.__tokenV3 = self.fill_tokenv3_access_data()
+                # self.__cookies = self.fill_cookie_access_data()
+                # self.__tokenV3 = self.fill_tokenv3_access_data()
                 self.__wb_analytics_api_key = self.fill_api_key_access_data()
 
 
@@ -53,19 +53,21 @@ class AccessDataLoader:
 
                 return mysql_connect_params_dict
         
-        def fill_cookie_access_data(self):
+        def fill_cookie_access_data(self, access_name='Wildberries Seller ЛК Cookies с доступом Поставки'):
                 """ Заполняет словарь доступов к БД """
                 cookie_data = {}
                 try:
                         # cookie_data = self.__sec_mod.get_access_data('Wildberries Seller ЛК Cookies с доступом Поставки')['Cookies']
-                        cookie_data = self.__sec_mod.get_access_data('Wildberries Seller ЛК Cookies с доступом Поставки')['Wildberries Seller ЛК Cookies с доступом Поставки']['Cookies']
+                        data = self.__sec_mod.get_access_data(access_name)[access_name]
+                        cookie_data = data['Cookies']
+                        tokenV3 = data['WBTokenV3']
                         self.__logger.debug("Получение cookies")
 
 
                 except Exception as e:
                         self.__logger.exception(f"Ошибка при получение доступов к БД: {e}")
 
-                return cookie_data
+                return cookie_data, tokenV3
         
         def fill_tokenv3_access_data(self):
                 """ Заполняет словарь доступов к БД """
@@ -81,8 +83,9 @@ class AccessDataLoader:
         def fill_api_key_access_data(self):
                 """ Заполняет словарь доступов к БД """
                 wb_analytics_api_key = {}
-                try:
-                        wb_analytics_api_key = self.__sec_mod.get_access_data('Wildberries API для контента')['Wildberries API для контента']
+                try:    
+                        data = self.__sec_mod.get_access_data('Wildberries API для контента')
+                        wb_analytics_api_key = data['Wildberries API для контента']
 
                 except Exception as e:
                         self.__logger.exception(f"Ошибка при получение доступов к БД: {e}")

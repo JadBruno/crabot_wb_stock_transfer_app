@@ -12,3 +12,8 @@ default_headers = {"Accept": "*/*",
                         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"}
 
 cookies_decrypt_key = 'l5JCQ4mwlIeRmTQ55wODcl1QmcgEXMfpSk9s5aHFqiY='
+
+cookie_access_name_array = ['Wildberries Seller ЛК Cookies с доступом Поставки',
+                             'Wildberries Seller ЛК Cookies с доступом Поставки. Дополнительный 1',
+                            'Wildberries Seller ЛК Cookies с доступом Поставки. Дополнительный 2',
+                            'Wildberries Seller ЛК Cookies с доступом Поставки. Дополнительный 3']

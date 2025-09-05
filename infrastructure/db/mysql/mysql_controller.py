@@ -610,7 +610,7 @@ class MySQLController():
 
     @simple_logger(logger_name=__name__)
     def get_wb_supply_destinations(self):
-        sql = """SELECT * FROM mp_data.a_wb_stock_transfer_wb_supply_destination_cl"""
+        sql = """SELECT * FROM mp_data.a_wb_stock_transfer_wb_supply_destination_kl"""
         try:
             result = self.db.execute_query(sql)
             result_dict = {}
@@ -628,7 +628,7 @@ class MySQLController():
             return False
 
         try:
-            sql = """INSERT INTO mp_data.a_wb_stock_transfer_wb_supply_destination_cl (destination_name)
+            sql = """INSERT INTO mp_data.a_wb_stock_transfer_wb_supply_destination_kl (destination_name)
                 VALUES (%s);"""
 
             params = [(name,) for name in new_destination_list]

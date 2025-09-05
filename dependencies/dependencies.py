@@ -1,4 +1,4 @@
-from utils.config import cookies_decrypt_key, default_headers
+from utils.config import cookies_decrypt_key, default_headers, cookie_access_name_array
 from utils.cookies_parser import CookieDecryptor
 from infrastructure.api.sync_controller import SyncAPIController
 from utils.logger import get_logger
@@ -39,25 +39,27 @@ class Dependencies:
         return self._mysql_controller
 
     @cached_property
-    def encrypted_cookies(self):
-        return self.access_data_loader.get_cookies()
-        # return self.mysql_controller.get_cookies_by_id(1)
-
+    def cookie_list(self):
+        cookie_list = self.fetch_all_cookies()
+        return cookie_list
     
     @cached_property
     def cookie_jar(self):
-        # cookies =  self.cookie_utils.decrypt(self.encrypted_cookies)
-        cookies = self.access_data_loader.get_cookies()
-        return self.cookie_utils.parse_cookie_string(cookies)
+        if self._cookie_jar is None:
+            self._cookie_jar = self.cookie_list[0]['cookies']
+        return self._cookie_jar
+        
+
 
     @cached_property
     def authorized_headers(self):
-        headers_copy = default_headers.copy()
-        tokenV3 = self.access_data_loader.get_tokenV3()
-        headers_copy['AuthorizeV3'] = tokenV3
-        # decrypted_cookies =  self.cookie_utils.decrypt(self.encrypted_cookies)
-        # headers_copy['AuthorizeV3'] = self.cookie_utils.extract_tokenV3(decrypted_cookies)
-        return headers_copy
+        if self._authorized_headers is not None:
+            return self._authorized_headers
+        else:
+            headers_copy = default_headers.copy()
+            tokenV3 = self.cookie_list[0]['tokenV3']
+            headers_copy['AuthorizeV3'] = tokenV3
+            return headers_copy
     
     @cached_property
     def wb_analytics_api_key(self):
@@ -65,6 +67,26 @@ class Dependencies:
             self._wb_analytics_api_key = self.access_data_loader.get_wb_analytics_api_key()
         return self._wb_analytics_api_key
     
+
+    def fetch_all_cookies(self):
+        cookie_list = []
+        for name in cookie_access_name_array:
+            try:
+                cookies_orig_data, tokenV3 = self.access_data_loader.fill_cookie_access_data(access_name=name)
+                cookie_parsed_data = self.cookie_utils.parse_cookie_string(cookies_orig_data)
+                if cookie_list == []:
+                    self._cookie_jar = cookie_parsed_data
+                    headers_copy = default_headers.copy()
+                    headers_copy['AuthorizeV3'] = tokenV3
+                    self._authorized_headers = headers_copy
+
+                cookies_data = {'cookies': cookie_parsed_data, 'tokenV3': tokenV3}
+                cookie_list.append(cookies_data)
+                
+            except Exception as e:
+                self.logger.exception(f"Ошибка при получение cookies по имени {name}: {e}")
+        return cookie_list
+
 
 deps = Dependencies()
 
@@ -74,3 +96,4 @@ authorized_headers = deps.authorized_headers
 mysql_controller = deps.mysql_controller
 api_controller = SyncAPIController()
 wb_analytics_api_key = deps.wb_analytics_api_key
+cookie_list = deps.cookie_list
