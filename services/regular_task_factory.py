@@ -40,7 +40,7 @@ class RegularTaskFactory:
     @simple_logger(logger_name=__name__)
     def run(self):
             # карта размеров айди - тег
-            if size_map is None:
+            if self.size_map is None:
                 self.size_map = self.db_controller.get_size_map()
                 
             size_map = self.size_map
