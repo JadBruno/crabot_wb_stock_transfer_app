@@ -7,3 +7,4 @@ pycryptodome==3.21.0 #Для доступов в секермодуле
 cryptography==42.0.5 #
 python-dotenv==1.1.0
 pandas==2.1.4
+aiohttp==3.11.18
