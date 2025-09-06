@@ -46,19 +46,24 @@ class QuotaFetcher:
 
         for office_id in office_id_list:
             for mode in modes:
-                cookie_data = self.cookie_list[cookie_index]
-                cookies = cookie_data['cookies']
-                tokenv3 = cookie_data['tokenV3']
+                cur_cookie_data = self.cookie_list[cookie_index]
+                cur_cookies = cur_cookie_data['cookies']
+                cur_tokenv3 = cur_cookie_data['tokenV3']
                 tasks.append(
                     self._fetch_single_quota(
-                        office_id, mode, cookies=cookies, tokenv3=tokenv3, session=session))
+                        office_id, mode, cookies=cur_cookies, tokenv3=cur_tokenv3, session=session))
                 cookie_index = (cookie_index + 1) % cookie_count
+                
+                current_batch_result = await asyncio.gather(*tasks)
+                results.extend(current_batch_result)
+                tasks = []
+                await asyncio.sleep(self.cooldown/self.cooldown)
 
-                if len(tasks) == cookie_count:
-                    current_batch_result = await asyncio.gather(*tasks)
-                    results.extend(current_batch_result)
-                    tasks = []
-                    await asyncio.sleep(self.cooldown)
+                # if len(tasks) == cookie_count:
+                #     current_batch_result = await asyncio.gather(*tasks)
+                #     results.extend(current_batch_result)
+                #     tasks = []
+                #     await asyncio.sleep(self.cooldown)
         
         if tasks:
             last_batch_results = await asyncio.gather(*tasks)
