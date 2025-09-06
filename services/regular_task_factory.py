@@ -835,10 +835,20 @@ class RegularTaskFactory:
 
     @simple_logger(logger_name=__name__)
     def sort_destinations_by_key(self, some_tuple, key):
-    # Берём только те id, у которых значение не None
-        filtered = {k: v for k, v in some_tuple.items() if v.get(key) is not None}
-        keys_sorted = sorted(filtered, key=lambda k: filtered[k][key])
-        return keys_sorted
+        # Берём только те id, у которых значение не None (Не правильная логика, нам нужно брать все доступные склады)
+        # filtered = {k: v for k, v in some_tuple.items() if v.get(key) is not None}
+        # keys_sorted = sorted(filtered, key=lambda k: filtered[k][key])
+        # return keys_sorted
+        # Сортирует все значения, присваивая значениям None предварительно 999999, чтобы они оказались в конце отсортированного списка, 
+        # но тоже учитывались при перераспределении остатков
+        def sort_key(item):
+            value = some_tuple[item].get(key)
+            if value is None:
+                return (1, 999999)  # None значения идут после
+            else:
+                return (0, value)   # Обычные значения идут сначала
+    
+        return sorted(some_tuple.keys(), key=sort_key)
 
     @simple_logger(logger_name=__name__)
     def create_stock_transfer_task_for_product(self, task_collection, 
@@ -912,7 +922,7 @@ class RegularTaskFactory:
     @simple_logger(logger_name=__name__)
     def send_stock_transfer_request(self, tasks_to_process, quota_dict, size_map):
 
-        time.sleep(1)
+        # time.sleep(0.5) - Тут пауза не нужна. Она нужна, только если реально был послан запрос к WB. А многие запросы не посылаются из-за отсутствия квот. Кулдаун перенесен сразу после запроса к WB
 
         for task_idx, task in enumerate(tasks_to_process, start=1):
             self.logger.info("Обработка задания #%s", task_idx)
@@ -1017,10 +1027,11 @@ class RegularTaskFactory:
                                 print(f"POST: {warehouse_req_body}")
                                 self.logger.debug("Отправка заявки: %s", warehouse_req_body)
 
-                                # response = self.send_transfer_request(warehouse_req_body)
-                                # if response.status_code in [200, 201, 202, 204]:
-                                mock_true = True
-                                if mock_true:
+                                response = self.send_transfer_request(warehouse_req_body)
+                                time.sleep(0.5)
+                                if response.status_code in [200, 201, 202, 204]:
+                                # mock_true = True
+                                # if mock_true:
                                     for size in getattr(product, "sizes", []):
                                         if size.size_id in warehouse_entries:
                                             size.transfer_qty_left_real -= warehouse_entries[size.size_id]['count']
@@ -1034,7 +1045,7 @@ class RegularTaskFactory:
                                             
                                             products_on_the_way_array.append(product_on_the_way_entry)
                                 else:
-                                    self.logger.error("Полученный ответ от ВБ не соответсвует ожидание, отключаем скрипт")
+                                    self.logger.error("Полученный ответ от ВБ не соответсвует ожиданию, отключаем скрипт")
                                     sys.exit()
 
                             except Exception as e:

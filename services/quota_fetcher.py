@@ -57,7 +57,9 @@ class QuotaFetcher:
                 current_batch_result = await asyncio.gather(*tasks)
                 results.extend(current_batch_result)
                 tasks = []
-                await asyncio.sleep(self.cooldown/self.cooldown)
+
+                if cookie_count>0:
+                    await asyncio.sleep(self.cooldown/cookie_count)
 
                 # if len(tasks) == cookie_count:
                 #     current_batch_result = await asyncio.gather(*tasks)
