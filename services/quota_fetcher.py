@@ -9,7 +9,7 @@ class QuotaFetcher:
                  cookie_list,
                  headers,
                  logger,
-                 cooldown: float = 1):
+                 cooldown: float = 0.5):
         self.api_controller = api_controller
         self.mysql_controller = mysql_controller
         self.cookie_list = cookie_list
@@ -69,7 +69,6 @@ class QuotaFetcher:
             last_batch_results = await asyncio.gather(*tasks)
             results.extend(last_batch_results)
 
-        
         # results = await asyncio.gather(*tasks)
         end_time = time.perf_counter()
         elapsed_time = end_time - start_time

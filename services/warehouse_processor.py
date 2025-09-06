@@ -47,10 +47,6 @@ class OneTimeTaskProcessor:
             # quota_dict = {507: {'src': 39835, 'dst': 0}, 117986: {'src': 41436, 'dst': 0}, 120762: {'src': 0, 'dst': 74184}, 2737: {'src': 24709, 'dst': 0}, 130744: {'src': 0, 'dst': 459945}, 686: {'src': 24992, 'dst': 0}, 1733: {'src': 24340, 'dst': 0}, 206348: {'src': 10000, 'dst': 72554}, 208277: {'src': 0, 'dst': 84267}, 301760: {'src': 0, 'dst': 93503}, 301809: {'src': 0, 'dst': 493275}, 301983: {'src': 0, 'dst': 3355}}
 
             self.logger.info("Квоты складов получены: %s записей", len(quota_dict))
-        
-            # Логаем текущие квоты
-            self.db_controller.log_warehouse_state(quota_dict)
-            self.logger.debug("Состояние складов залогировано в БД")
 
         except Exception as e:
             self.logger.exception("Ошибка обработке разовых заданий: %s", e)
