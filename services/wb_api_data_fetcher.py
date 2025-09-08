@@ -3,7 +3,7 @@ import aiohttp
 import time
 
 
-class QuotaFetcher:
+class WBAPIDataFetcher:
     def __init__(self, api_controller,
                  mysql_controller,
                  cookie_list,
@@ -114,3 +114,34 @@ class QuotaFetcher:
                 quota = response_json.get("data", {}).get("quota", 0)
 
             return office_id, mode, quota
+
+
+
+    def fetch_warehouse_list(self, random_present_nmid) -> list[int] | None:
+        try:
+            cookies = self.cookie_list[0]['cookies']
+            tokenV3 = self.cookie_list[0]['tokenV3']
+
+            headers = self.headers.copy()
+            headers['AuthorizeV3'] = tokenV3
+
+
+            response = self.api_controller.request(
+                base_url="https://seller-weekly-report.wildberries.ru",
+                method="GET",
+                endpoint="/ns/shifts/analytics-back/api/v1/stocks",
+                params={"nmID": str(random_present_nmid)},
+                cookies=cookies,
+                headers=headers)
+            
+            self.logger.debug("Ответ получен: status=%s", getattr(response, "status_code", None))
+
+            response_json = response.json()
+            dst_data = response_json.get("data", {}).get("dst", [])
+            office_id_list = [w.get("officeID") for w in dst_data if "officeID" in w]
+            self.logger.info("Получено офисов (dst): %s", len(office_id_list))
+            return office_id_list
+
+        except Exception as e:
+            self.logger.exception("Ошибка в fetch_warehouse_list: %s", e)
+            return None

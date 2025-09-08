@@ -35,7 +35,7 @@ class MySQLController():
 
 
     @simple_logger(logger_name=__name__)
-    def get_all_tasks_with_products_dict(self) -> dict[int, TaskWithProducts]:
+    def get_all_single_tasks_with_products_dict(self) -> dict[int, TaskWithProducts]:
         # Получаем все задания
         tasks_query = """SELECT 
                             task_id,

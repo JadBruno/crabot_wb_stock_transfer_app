@@ -24,6 +24,7 @@ import string
 import base64
 import json
 import sys
+from utils.logger import get_logger
 
 parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # Для импорта из родительской директории
 sys.path.insert(0, parent_dir)
@@ -32,6 +33,114 @@ from csd import encryption_key_1, encryption_key_3_name, encryption_level, max_d
 delimiter = bytes(delimiter.encode('utf-8'))
 
 class SecurityModule:
+    # -------------------------------------------------------------------------------------------------------------
+    # -------------------------------------- ОСНОВНЫЕ ФУНКЦИИ -----------------------------------------------------
+    # -------------------------------------------------------------------------------------------------------------
+    def __init__(self):
+        """
+        Инициализация SecurityModule.
+        
+        Загружает ключи шифрования и данные для подключения к базе данных.
+        """
+        try:
+            self.BLOCK_SIZE = 16 # Размер блока для шифрования
+            self.mySQLConnectParam = mySQLConnectParam_dostup
+            self.characters = string.ascii_letters + string.punctuation + string.digits
+            self.encryption_key_1 = encryption_key_1 # Первый ключ берем из crabot_data_settings
+            self.encryption_key_2 = self.get_encryption_key_from_db() # Второй ключ достается из БД
+            self.encryption_key_3 = os.environ.get(encryption_key_3_name) # Третий ключ - переменная системного окружения
+            self.encryption_key_list = [self.encryption_key_1,self.encryption_key_2,self.encryption_key_3] # Cобрали лист из ключей, чтобы удобнее его передавать
+            self.encryption_level = encryption_level # Установили количество уровней шифрования
+            salt_iv_dict = self.get_default_salt_and_iv() # Скачали дефолтную соль и iv из БД, чтобы шифровать/дешифровать названия модулей
+            self.default_salt = salt_iv_dict['salt']
+            self.default_iv = salt_iv_dict['iv']
+            self.logger = get_logger(__name__)
+            
+        #    self.logger.debug(f'Соль {self.default_salt}. Длина: {len(self.default_salt)}')
+        #    self.logger.debug(f'IV {self.default_iv}. Длина {len(self.default_iv)}')
+        #    self.logger.debug(f'Ключ_1 длина {"больше" if len(self.encryption_key_1) > 10 else "="} {10 if len(self.encryption_key_1) > 10 else len(self.encryption_key_1)}')
+        #    self.logger.debug(f'Ключ_2 длина {"больше" if len(self.encryption_key_2) > 10 else "="} {10 if len(self.encryption_key_2) > 10 else len(self.encryption_key_2)}')
+        #    self.logger.debug(f'Ключ_3 длина {"больше" if len(self.encryption_key_3) > 10 else "="} {10 if len(self.encryption_key_3) > 10 else len(self.encryption_key_3)}')
+
+        except Exception as ex:
+            self.logger.debug(f"{type(ex).__name__}: {ex}\n{traceback.format_exc()}")
+
+    def save_access_data(self, access_data_dict):
+        """  Метод сохранияем зашифрованные данные в нашей БД
+            Вводные данные: словарь с чувствительной информацией
+        """
+        service_name = tuple(access_data_dict.keys())[0] # Отделяем от всей информации название сервиса
+        encrypted_service_name = self.encrypt_service_name(service_name) # Шифруем наш сервис дефолтной солью и iv
+        encrypted_entries_list = [] # Cловарь с листами, где кадый словарь зашифрованные key, value access_data_dict
+        for key, value in access_data_dict[service_name].items(): 
+            key = str(key)
+            key = self.data_randomize(key)
+            value = str(value)
+            value = self.data_randomize(value) # Рандомизируем значение value
+            access_data_name = self.encrypt(key) # Шифруем значение key
+            access_data_value = self.encrypt(value) # Шифруем значение value
+            encrypted_entries_list.append({
+                'service_name':encrypted_service_name,
+                'access_data_name':access_data_name,
+                'access_data_value':access_data_value
+                                      }) # Cоздаем новый словарь
+       
+        # Загрузка зашифрованных данных в БД
+        connection = pymysql.connect(**self.mySQLConnectParam,
+                                cursorclass=pymysql.cursors.DictCursor)
+        with connection.cursor() as cursor:
+            delete_query = """DELETE FROM u_access_data WHERE `service_name` = %(service_name)s"""
+            sql_parameters_delete = {'service_name':encrypted_service_name}
+            cursor.execute(delete_query, sql_parameters_delete)
+
+            insert_query = """INSERT INTO u_access_data (`service_name`,`access_data_name`,`access_data_value`) 
+                            VALUES (%(service_name)s,%(access_data_name)s,%(access_data_value)s);"""
+            for row in encrypted_entries_list:
+                sql_parameters_insert = {'service_name':row['service_name'],
+                                  'access_data_name':row['access_data_name'],
+                                  'access_data_value':row['access_data_value']}
+                cursor.execute(insert_query, sql_parameters_insert)
+        connection.commit()
+        self.logger.debug('Зашифрованные данные загружены в БД')
+
+    def get_access_data(self,service_name):
+        """ Получаем расшифрованные значения из БД по названию сервиса
+            Вводные данные: service_name - названия сервиса
+        """
+        def get_encrypted_access_data(service_name):
+            """Получаем данные из БД в зашифрованном виде
+                Вводные данные: service_name - названия сервиса
+                Вывод: encrypted_access_data - зашифрованные значения из БД"""
+            connection = pymysql.connect(**self.mySQLConnectParam,
+                                             cursorclass=pymysql.cursors.DictCursor)
+            with connection.cursor() as cursor:
+                placeholder = {'service_name':service_name}
+                query = "SELECT `access_data_name`,`access_data_value` FROM u_access_data where `service_name` = %(service_name)s"
+                cursor.execute(query,placeholder)
+                encrypted_access_data = cursor.fetchall()
+                return encrypted_access_data
+        
+        encrypted_service_name = self.encrypt_service_name(service_name) # Шифруем имя сервиса при помощи стандартных соли и iv
+        encrypted_access_data = get_encrypted_access_data(encrypted_service_name) # Получаем данные из БД при помощи зашифрованного имено сервиса
+        access_data = {service_name:{}} # Наш итоговый словарик
+        for single_access_dict in encrypted_access_data:
+            encrypted_access_data_name, encrypted_access_data_value = single_access_dict.values() # берем только значения колонок без их имен
+            delimiter = b'$$$' # Делимитер, чтобы достать уникальную соль и iv для создания приватных ключей дешифровки
+            access_data_name_salt, access_data_name_hash, access_data_name_iv = encrypted_access_data_name.split(delimiter) # Получаем наши соль, хеш и iv с именем значения
+            randomized_access_data_name = self.decrypt(encrypted_string=access_data_name_hash,salt=access_data_name_salt, iv=access_data_name_iv) # Дешифруем
+            randomized_access_data_name = randomized_access_data_name.decode('utf-8') # Рекодируем значение в 'utf-8
+            decrypted_access_data_name = self.data_derandomize(randomized_access_data_name)
+            access_data_value_salt, access_data_value_hash, access_data_value_iv = encrypted_access_data_value.split(delimiter) # Получаем наши соль, хеш и iv для значения
+            randomized_access_data_value = self.decrypt(encrypted_string=access_data_value_hash,salt=access_data_value_salt, iv=access_data_value_iv) # Дешифруем
+            randomized_access_data_value = randomized_access_data_value.decode('utf-8') # Рекодируем значение в 'utf-8
+            decrypted_access_data_value = self.data_derandomize(randomized_access_data_value) # Дерандомизируем
+            access_data[service_name][decrypted_access_data_name] = decrypted_access_data_value # Записываем в словарик на вывод
+        return access_data # Я знаю, ты попадешь в надежные руки
+    
+
+
+
+
     # -------------------------------------------------------------------------------------------------------------
     # --------------------------------------ВСПОМОГАТЕЛЬНЫЕ ПРИВАТНЫЕ ФУНКЦИИ--------------------------------------
     # -------------------------------------------------------------------------------------------------------------
@@ -67,7 +176,7 @@ class SecurityModule:
                 random_str += random.choice(self.characters)
             return random_str 
         except Exception as ex:
-            print(f"{type(ex).__name__}: {ex}\n{traceback.format_exc()}")
+            self.logger.debug(f"{type(ex).__name__}: {ex}\n{traceback.format_exc()}")
             return None
 
     def data_randomize(self,data):
@@ -109,12 +218,12 @@ class SecurityModule:
             for number in split_index_str:
                 address += f"{number}{random.choice(self.characters)}"
 
-        #    print(f'Длина адреса: {len(address)}')
+        #    self.logger.debug(f'Длина адреса: {len(address)}')
             
             encrypted_string = address+noise_str_first_part + data + noise_str_second_part
             return encrypted_string
         except Exception as ex:
-            print(f"{type(ex).__name__}: {ex}\n{traceback.format_exc()}")
+            self.logger.debug(f"{type(ex).__name__}: {ex}\n{traceback.format_exc()}")
             return None
             
     def get_private_key(self, key, salt):
@@ -184,7 +293,7 @@ class SecurityModule:
                     if delimiter not in salt:
                         break
                     else:
-                        print('Ошибка генерации salt из-за делимитера')
+                        self.logger.debug('Ошибка генерации salt из-за делимитера')
             
 
         if iv == None: # Если не указан пользовательский iv, генерируем свой
@@ -195,11 +304,11 @@ class SecurityModule:
                     if delimiter not in iv:
                         break
                     else:
-                        print('Ошибка генерации iv из-за делимитера')
+                        self.logger.debug('Ошибка генерации iv из-за делимитера')
 
 
-        # print('Соль',salt)
-        # print('iv',iv)
+        # self.logger.debug('Соль',salt)
+        # self.logger.debug('iv',iv)
         for _ in range(3):
             for _ in range(self.encryption_level): # Уровень шифрования
                 for key in self.encryption_key_list: # Наши ключи
@@ -209,7 +318,7 @@ class SecurityModule:
             else:
                 salt = os.urandom(16)
                 string_to_encrypt = default_string_to_encrypt
-                print('Делимитер найден в конечном хеше. Повторная генерация соли')
+                self.logger.debug('Делимитер найден в конечном хеше. Повторная генерация соли')
         
         encrypted_string = salt + delimiter + string_to_encrypt + delimiter + iv # salt$$$encrypyted_string$$$iv
         return encrypted_string
@@ -264,107 +373,4 @@ class SecurityModule:
         derandomized_string = randomized_string[data_address+address_size:data_address+data_length+address_size] # Находим чувствительную информацию
         return derandomized_string
 
-    # -------------------------------------------------------------------------------------------------------------
-    # -------------------------------------- ОСНОВНЫЕ ФУНКЦИИ -----------------------------------------------------
-    # -------------------------------------------------------------------------------------------------------------
-    def __init__(self):
-        """
-        Инициализация SecurityModule.
-        
-        Загружает ключи шифрования и данные для подключения к базе данных.
-        """
-        try:
-            self.BLOCK_SIZE = 16 # Размер блока для шифрования
-            self.mySQLConnectParam = mySQLConnectParam_dostup
-            self.characters = string.ascii_letters + string.punctuation + string.digits
-            self.encryption_key_1 = encryption_key_1 # Первый ключ берем из crabot_data_settings
-            self.encryption_key_2 = self.get_encryption_key_from_db() # Второй ключ достается из БД
-            self.encryption_key_3 = os.environ.get(encryption_key_3_name) # Третий ключ - переменная системного окружения
-            self.encryption_key_list = [self.encryption_key_1,self.encryption_key_2,self.encryption_key_3] # Cобрали лист из ключей, чтобы удобнее его передавать
-            self.encryption_level = encryption_level # Установили количество уровней шифрования
-            salt_iv_dict = self.get_default_salt_and_iv() # Скачали дефолтную соль и iv из БД, чтобы шифровать/дешифровать названия модулей
-            self.default_salt = salt_iv_dict['salt']
-            self.default_iv = salt_iv_dict['iv']
-            
-        #    print(f'Соль {self.default_salt}. Длина: {len(self.default_salt)}')
-        #    print(f'IV {self.default_iv}. Длина {len(self.default_iv)}')
-        #    print(f'Ключ_1 длина {"больше" if len(self.encryption_key_1) > 10 else "="} {10 if len(self.encryption_key_1) > 10 else len(self.encryption_key_1)}')
-        #    print(f'Ключ_2 длина {"больше" if len(self.encryption_key_2) > 10 else "="} {10 if len(self.encryption_key_2) > 10 else len(self.encryption_key_2)}')
-        #    print(f'Ключ_3 длина {"больше" if len(self.encryption_key_3) > 10 else "="} {10 if len(self.encryption_key_3) > 10 else len(self.encryption_key_3)}')
-
-        except Exception as ex:
-            print(f"{type(ex).__name__}: {ex}\n{traceback.format_exc()}")
-
-    def save_access_data(self, access_data_dict):
-        """  Метод сохранияем зашифрованные данные в нашей БД
-            Вводные данные: словарь с чувствительной информацией
-        """
-        service_name = tuple(access_data_dict.keys())[0] # Отделяем от всей информации название сервиса
-        encrypted_service_name = self.encrypt_service_name(service_name) # Шифруем наш сервис дефолтной солью и iv
-        encrypted_entries_list = [] # Cловарь с листами, где кадый словарь зашифрованные key, value access_data_dict
-        for key, value in access_data_dict[service_name].items(): 
-            key = str(key)
-            key = self.data_randomize(key)
-            value = str(value)
-            value = self.data_randomize(value) # Рандомизируем значение value
-            access_data_name = self.encrypt(key) # Шифруем значение key
-            access_data_value = self.encrypt(value) # Шифруем значение value
-            encrypted_entries_list.append({
-                'service_name':encrypted_service_name,
-                'access_data_name':access_data_name,
-                'access_data_value':access_data_value
-                                      }) # Cоздаем новый словарь
-       
-        # Загрузка зашифрованных данных в БД
-        connection = pymysql.connect(**self.mySQLConnectParam,
-                                cursorclass=pymysql.cursors.DictCursor)
-        with connection.cursor() as cursor:
-            delete_query = """DELETE FROM u_access_data WHERE `service_name` = %(service_name)s"""
-            sql_parameters_delete = {'service_name':encrypted_service_name}
-            cursor.execute(delete_query, sql_parameters_delete)
-
-            insert_query = """INSERT INTO u_access_data (`service_name`,`access_data_name`,`access_data_value`) 
-                            VALUES (%(service_name)s,%(access_data_name)s,%(access_data_value)s);"""
-            for row in encrypted_entries_list:
-                sql_parameters_insert = {'service_name':row['service_name'],
-                                  'access_data_name':row['access_data_name'],
-                                  'access_data_value':row['access_data_value']}
-                cursor.execute(insert_query, sql_parameters_insert)
-        connection.commit()
-        print('Зашифрованные данные загружены в БД')
-
-    def get_access_data(self,service_name):
-        """ Получаем расшифрованные значения из БД по названию сервиса
-            Вводные данные: service_name - названия сервиса
-        """
-        def get_encrypted_access_data(service_name):
-            """Получаем данные из БД в зашифрованном виде
-                Вводные данные: service_name - названия сервиса
-                Вывод: encrypted_access_data - зашифрованные значения из БД"""
-            connection = pymysql.connect(**self.mySQLConnectParam,
-                                             cursorclass=pymysql.cursors.DictCursor)
-            with connection.cursor() as cursor:
-                placeholder = {'service_name':service_name}
-                query = "SELECT `access_data_name`,`access_data_value` FROM u_access_data where `service_name` = %(service_name)s"
-                cursor.execute(query,placeholder)
-                encrypted_access_data = cursor.fetchall()
-                return encrypted_access_data
-        
-        encrypted_service_name = self.encrypt_service_name(service_name) # Шифруем имя сервиса при помощи стандартных соли и iv
-        encrypted_access_data = get_encrypted_access_data(encrypted_service_name) # Получаем данные из БД при помощи зашифрованного имено сервиса
-        access_data = {service_name:{}} # Наш итоговый словарик
-        for single_access_dict in encrypted_access_data:
-            encrypted_access_data_name, encrypted_access_data_value = single_access_dict.values() # берем только значения колонок без их имен
-            delimiter = b'$$$' # Делимитер, чтобы достать уникальную соль и iv для создания приватных ключей дешифровки
-            access_data_name_salt, access_data_name_hash, access_data_name_iv = encrypted_access_data_name.split(delimiter) # Получаем наши соль, хеш и iv с именем значения
-            randomized_access_data_name = self.decrypt(encrypted_string=access_data_name_hash,salt=access_data_name_salt, iv=access_data_name_iv) # Дешифруем
-            randomized_access_data_name = randomized_access_data_name.decode('utf-8') # Рекодируем значение в 'utf-8
-            decrypted_access_data_name = self.data_derandomize(randomized_access_data_name)
-            access_data_value_salt, access_data_value_hash, access_data_value_iv = encrypted_access_data_value.split(delimiter) # Получаем наши соль, хеш и iv для значения
-            randomized_access_data_value = self.decrypt(encrypted_string=access_data_value_hash,salt=access_data_value_salt, iv=access_data_value_iv) # Дешифруем
-            randomized_access_data_value = randomized_access_data_value.decode('utf-8') # Рекодируем значение в 'utf-8
-            decrypted_access_data_value = self.data_derandomize(randomized_access_data_value) # Дерандомизируем
-            access_data[service_name][decrypted_access_data_name] = decrypted_access_data_value # Записываем в словарик на вывод
-        return access_data # Я знаю, ты попадешь в надежные руки
     
-

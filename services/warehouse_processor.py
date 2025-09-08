@@ -10,31 +10,30 @@ from models.tasks import ProductToTask, TaskWithProducts, ProductSizeInfo
 # Зависимости
 from infrastructure.api.sync_controller import SyncAPIController
 from infrastructure.db.mysql.mysql_controller import MySQLController
-
+from services.db_data_fetcher import DBDataFetcher
 
 class OneTimeTaskProcessor:
     def __init__(self,
                  api_controller: SyncAPIController,
                  db_controller: MySQLController,
+                 db_data_fetcher: DBDataFetcher,
                  cookie_jar: RequestsCookieJar,
                  headers: Dict,
                  logger):
         self.api_controller = api_controller
         self.db_controller = db_controller
+        self.db_data_fetcher = db_data_fetcher
         self.cookie_jar = cookie_jar
         self.headers = headers
         self.logger = logger
 
 
-    def process_one_time_tasks(self, quota_dict):
+    def process_one_time_tasks(self, quota_dict, office_id_list):
         self.logger.info("Старт process_one_time_tasks()")
         try:
 
-            tasks = self.db_controller.get_all_tasks_with_products_dict()
+            tasks = self.db_data_fetcher.one_time_tasks
             self.logger.debug("Получено заданий: %s", len(tasks) if tasks else 0)
-            random_nmid = self.db_controller.get_max_stock_article()  # Прост рандомный артикул со стоками
-            self.logger.debug("Получен случайный nmid для стоков: %s", random_nmid)
-            office_id_list = self.fetch_warehouse_list(random_present_nmid=random_nmid)
             self.logger.debug("Склады (office_id_list): %s", office_id_list)
 
             if not office_id_list:
@@ -144,7 +143,7 @@ class OneTimeTaskProcessor:
 
                             self.logger.info("Готово тело заявки для отправки: %s", warehouse_req_body)
                             try:
-                                print(f"POST: {warehouse_req_body}")
+                                self.logger.debug(f"POST: {warehouse_req_body}")
                                 self.logger.debug("Отправка заявки: %s", warehouse_req_body)
 
                                 response = self.send_transfer_request(warehouse_req_body)
@@ -165,7 +164,6 @@ class OneTimeTaskProcessor:
                                             products_on_the_way_array.append(product_on_the_way_entry)
                                             
                             except Exception as e:
-                                print(f"Ошибка при отправке запроса: {e}")
                                 self.logger.exception("Ошибка при отправке запроса: %s", e)
 
                         except Exception as e:
@@ -173,7 +171,8 @@ class OneTimeTaskProcessor:
                                                   src_warehouse_id, dst_warehouse_id, e)
 
             try:
-                self.db_controller.insert_products_on_the_way(items=products_on_the_way_array)
+                if products_on_the_way_array:
+                    self.db_controller.insert_products_on_the_way(items=products_on_the_way_array)
                 self.db_controller.update_transfer_qty_from_task(task)  # Тут в БД несем задания
                 self.logger.info("Задание #%s: обновлены количества трансферов в БД", task_idx)
             except Exception as e:

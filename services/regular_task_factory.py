@@ -17,19 +17,23 @@ import math
 import pandas as pd
 import sys
 from utils.logger import simple_logger
+from services.db_data_fetcher import DBDataFetcher
 
 Row = Union[Mapping[str, Any], Sequence[Any]]
+
 
 class RegularTaskFactory:
     def __init__(self,
                  db_controller: MySQLController,
                  api_controller: SyncAPIController,
+                 db_data_fetcher: DBDataFetcher,
                  cookie_jar: RequestsCookieJar,
                  headers: Dict,
                  logger,
                  size_map: Dict[int, str]):
         self.db_controller = db_controller
         self.api_controller = api_controller
+        self.db_data_fetcher = db_data_fetcher
         self.cookie_jar = cookie_jar
         self.headers = headers
         self.logger = logger
@@ -41,32 +45,32 @@ class RegularTaskFactory:
     def run(self):
             # карта размеров айди - тег
             if self.size_map is None:
-                self.size_map = self.db_controller.get_size_map()
+                self.size_map = self.db_data_fetcher.size_map
                 
             size_map = self.size_map
 
             # словари приоритетов в регионах
-            region_priority_dict = self.db_controller.get_regions_with_sort_order()
+            region_priority_dict = self.db_data_fetcher.region_priority_dict
 
-            warehouse_priority_dict = self.db_controller.get_warehouses_with_sort_order()
+            warehouse_priority_dict = self.db_data_fetcher.warehouse_priority_dict
 
-            warehouses_available_to_stock_transfer = self.db_controller.get_office_with_regions_map()
+            warehouses_available_to_stock_transfer = self.db_data_fetcher.warehouses_available_to_stock_transfer
 
-            stock_availability_data = self.db_controller.get_stock_availability_data()
+            stock_availability_data = self.db_data_fetcher.stock_availability_data
 
             stock_availability_df = self.build_article_days(stock_time_data=stock_availability_data, last_n_days=30)
 
-            sales_data = self.db_controller.get_size_sales_for_warehouse()
+            sales_data = self.db_data_fetcher.sales_data
 
-            blocked_warehouses_for_skus = self.db_controller.get_blocked_warehouses_for_skus()
+            blocked_warehouses_for_skus = self.db_data_fetcher.blocked_warehouses_for_skus
 
             orders_index = {(row["nmId"], row["techSize_id"], row["office_id"]): row["order_count"]
                             for row in sales_data}
 
             # берем настройки задания
-            task_row  = self.db_controller.get_current_regular_task()
+            task_row  = self.db_data_fetcher.regular_task_row
             # теперь берём стоки с регионами
-            all_product_entries = self.db_controller.get_stocks_for_regular_tasks()
+            all_product_entries = self.db_data_fetcher.all_product_entries_for_regular_task
             # юху
             product_collection = self.create_product_collection_with_regions(all_product_entries=all_product_entries,
                                                                                 warehouses_available_to_stock_transfer=warehouses_available_to_stock_transfer,
@@ -74,7 +78,7 @@ class RegularTaskFactory:
                                                                                 orders_index=orders_index)
             # добавил продукты в пути
 
-            transfers = self.db_controller.get_products_transfers_on_the_way_with_region()
+            transfers = self.db_data_fetcher.product_on_the_way_for_regular_task
             if transfers:
                 self.merge_transfers_on_the_way_with_region(
                     products_collection=product_collection,
@@ -400,7 +404,7 @@ class RegularTaskFactory:
     #                     current_tasks_for_product.append(task_for_size)
 
     #         except Exception as e:
-    #             print(f"Ошибка при обработке продукта {product.get('wb_article_id')}: {e}")
+    #             self.logger.debug(f"Ошибка при обработке продукта {product.get('wb_article_id')}: {e}")
 
     #         if current_tasks_for_product:
 
@@ -621,7 +625,7 @@ class RegularTaskFactory:
                         current_tasks_for_product.append(task_for_size)
 
             except Exception as e:
-                print(f"Ошибка при обработке продукта {product.get('wb_article_id')}: {e}")
+                self.logger.debug(f"Ошибка при обработке продукта {product.get('wb_article_id')}: {e}")
 
             # Сохраняем задачи по товару
             if current_tasks_for_product:
@@ -1024,7 +1028,7 @@ class RegularTaskFactory:
 
                             self.logger.info("Готово тело заявки для отправки: %s", warehouse_req_body)
                             try:
-                                print(f"POST: {warehouse_req_body}")
+                                self.logger.debug(f"POST: {warehouse_req_body}")
                                 self.logger.debug("Отправка заявки: %s", warehouse_req_body)
 
                                 response = self.send_transfer_request(warehouse_req_body)
@@ -1049,7 +1053,7 @@ class RegularTaskFactory:
                                     sys.exit()
 
                             except Exception as e:
-                                print(f"Ошибка при отправке запроса: {e}")
+                                self.logger.debug(f"Ошибка при отправке запроса: {e}")
                                 self.logger.exception("Ошибка при отправке запроса: %s", e)
 
                         except Exception as e:
