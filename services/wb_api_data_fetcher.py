@@ -91,7 +91,7 @@ class WBAPIDataFetcher:
 
     async def _fetch_single_quota(self, office_id, mode, cookies, tokenv3, session:aiohttp.ClientSession):
             
-
+        try:
 
             headers = self.headers.copy()
             headers['AuthorizeV3'] = tokenv3
@@ -114,13 +114,21 @@ class WBAPIDataFetcher:
                 "https://seller-weekly-report.wildberries.ru/ns/shifts/analytics-back/api/v1/quota",
                 params={"officeID": office_id, "type": mode}) as resp:
                 if resp.status not in (200, 201, 202, 203, 204):
+                    self.logger.error(
+                        "Ответ GET от ВБ не соответствует ожиданию, office_id=%s mode=%s",
+                        office_id, mode)
                     return office_id, mode, -1
                 
                 response_json = await resp.json()
                 quota = response_json.get("data", {}).get("quota", 0)
 
             return office_id, mode, quota
-
+        
+        except:
+            self.logger.error(
+                        "Неизвестная ошибка для, office_id=%s mode=%s",
+                        office_id, mode)
+            return office_id, mode, quota
 
 
     def fetch_warehouse_list(self, random_present_nmid) -> list[int] | None:
