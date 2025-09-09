@@ -70,7 +70,7 @@ def main():
         
         # quota_dict = dict(regular_task_factory.get_warehouse_quotas(office_id_list)) # Забрали квоты по складам
 
-        mysql_controller.log_warehouse_state(quota_dict) # Залогировали состояние складов по квотам
+        # mysql_controller.log_warehouse_state(quota_dict) # Залогировали состояние складов по квотам
 
         one_time_task_processor.process_one_time_tasks(quota_dict=quota_dict, 
                                                        office_id_list=office_id_list) # Запуск обработки разовых заданий
