@@ -36,50 +36,48 @@ class WBAPIDataFetcher:
 
         # self.cookie_list.pop(-1)
 
-        session = aiohttp.ClientSession()
+        async with aiohttp.ClientSession() as session:
 
-        results = []
+            results = []
 
-        start_time = time.perf_counter()
+            start_time = time.perf_counter()
 
-        self.logger.info(f"Начинаем получение лимитов по складам")
+            self.logger.info(f"Начинаем получение лимитов по складам")
 
-        for office_id in office_id_list:
-            for mode in modes:
-                if office_id == 301987:
-                    a = 1
+            for office_id in office_id_list:
+                for mode in modes:
+                    if office_id == 301987:
+                        a = 1
 
-                cur_cookie_data = self.cookie_list[cookie_index]
-                cur_cookies = cur_cookie_data['cookies']
-                cur_tokenv3 = cur_cookie_data['tokenV3']
-                tasks.append(
-                    self._fetch_single_quota(
-                        office_id, mode, cookies=cur_cookies, tokenv3=cur_tokenv3, session=session))
-                cookie_index = (cookie_index + 1) % cookie_count
-                
-                current_batch_result = await asyncio.gather(*tasks)
-                results.extend(current_batch_result)
-                tasks = []
+                    cur_cookie_data = self.cookie_list[cookie_index]
+                    cur_cookies = cur_cookie_data['cookies']
+                    cur_tokenv3 = cur_cookie_data['tokenV3']
+                    tasks.append(
+                        self._fetch_single_quota(
+                            office_id, mode, cookies=cur_cookies, tokenv3=cur_tokenv3, session=session))
+                    cookie_index = (cookie_index + 1) % cookie_count
+                    
+                    current_batch_result = await asyncio.gather(*tasks)
+                    results.extend(current_batch_result)
+                    tasks = []
 
-                if cookie_count>0:
-                    await asyncio.sleep(self.cooldown/cookie_count)
+                    if cookie_count > 0:
+                        await asyncio.sleep(self.cooldown/cookie_count)
 
-                # if len(tasks) == cookie_count:
-                #     current_batch_result = await asyncio.gather(*tasks)
-                #     results.extend(current_batch_result)
-                #     tasks = []
-                #     await asyncio.sleep(self.cooldown)
-        
-        if tasks:
-            last_batch_results = await asyncio.gather(*tasks)
-            results.extend(last_batch_results)
+                    # if len(tasks) == cookie_count:
+                    #     current_batch_result = await asyncio.gather(*tasks)
+                    #     results.extend(current_batch_result)
+                    #     tasks = []
+                    #     await asyncio.sleep(self.cooldown)
+            
+            if tasks:
+                last_batch_results = await asyncio.gather(*tasks)
+                results.extend(last_batch_results)
 
-        # results = await asyncio.gather(*tasks)
-        end_time = time.perf_counter()
-        elapsed_time = end_time - start_time
-        self.logger.info(f"Лимиты получены за: {elapsed_time:.2f} секунд")
-
-        await session.close()
+            # results = await asyncio.gather(*tasks)
+            end_time = time.perf_counter()
+            elapsed_time = end_time - start_time
+            self.logger.info(f"Лимиты получены за: {elapsed_time:.2f} секунд")
 
         quota_dict = {}
         for office_id, mode, quota in results:
@@ -92,6 +90,8 @@ class WBAPIDataFetcher:
     
 
     async def _fetch_single_quota(self, office_id, mode, cookies, tokenv3, session:aiohttp.ClientSession):
+            
+
 
             headers = self.headers.copy()
             headers['AuthorizeV3'] = tokenv3
@@ -106,13 +106,16 @@ class WBAPIDataFetcher:
                     self.logger.error(
                         "Ответ OPTIONS от ВБ не соответствует ожиданию, office_id=%s mode=%s",
                         office_id, mode)
-                    return office_id, mode, None
+                    return office_id, mode, -1
                 
             await asyncio.sleep(0.1)  # Небольшая пауза между запросами
 
             async with session.get(
                 "https://seller-weekly-report.wildberries.ru/ns/shifts/analytics-back/api/v1/quota",
                 params={"officeID": office_id, "type": mode}) as resp:
+                if resp.status not in (200, 201, 202, 203, 204):
+                    return office_id, mode, -1
+                
                 response_json = await resp.json()
                 quota = response_json.get("data", {}).get("quota", 0)
 
