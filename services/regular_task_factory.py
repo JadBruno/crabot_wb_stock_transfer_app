@@ -167,6 +167,7 @@ class RegularTaskFactory:
     @simple_logger(logger_name=__name__)
     def build_article_days(self,
                            stock_time_data: Union[Sequence[Mapping], Sequence[tuple]],
+                           warehouses_available_to_stock_transfer,
                             last_n_days: Optional[int] = 30) -> Dict[Tuple[int, int, int], Dict[str, Any]]:
 
         now = pd.Timestamp.now()
