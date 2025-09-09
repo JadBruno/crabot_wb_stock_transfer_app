@@ -59,12 +59,12 @@ def main():
 
         now = datetime.now()
 
-        if now.minute != 0 and now.second != 1:
-                next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=1)
-                wait_seconds = (next_hour - now).total_seconds()
-                wait_seconds += 1 # Добавляем 1 секунду для надежности
-                logger.info(f"Ждём до {next_hour.strftime('%H:%M:%S')} ({int(wait_seconds)} сек.)")
-                time.sleep(wait_seconds)
+        # if now.minute != 0 and now.second != 1:
+        #         next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=1)
+        #         wait_seconds = (next_hour - now).total_seconds()
+        #         wait_seconds += 1 # Добавляем 1 секунду для надежности
+        #         logger.info(f"Ждём до {next_hour.strftime('%H:%M:%S')} ({int(wait_seconds)} сек.)")
+        #         time.sleep(wait_seconds)
                 
         quota_dict = asyncio.run(wb_api_data_fetcher.fetch_quota(office_id_list=office_id_list)) 
         
@@ -78,6 +78,7 @@ def main():
         regular_task_factory.quota_dict = quota_dict # Передали квоты в фабрику заданий
 
         regular_task_factory.run() # Запуск обработки регулярных заданий
+
 
 
 if __name__ == '__main__':

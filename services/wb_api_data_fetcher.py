@@ -46,6 +46,9 @@ class WBAPIDataFetcher:
 
         for office_id in office_id_list:
             for mode in modes:
+                if office_id == 301987:
+                    a = 1
+
                 cur_cookie_data = self.cookie_list[cookie_index]
                 cur_cookies = cur_cookie_data['cookies']
                 cur_tokenv3 = cur_cookie_data['tokenV3']

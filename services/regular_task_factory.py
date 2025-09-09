@@ -1032,7 +1032,7 @@ class RegularTaskFactory:
                                 self.logger.debug("Отправка заявки: %s", warehouse_req_body)
 
                                 response = self.send_transfer_request(warehouse_req_body)
-                                time.sleep(0.5)
+                                time.sleep(0.1)
                                 if response.status_code in [200, 201, 202, 204]:
                                 # mock_true = True
                                 # if mock_true:
