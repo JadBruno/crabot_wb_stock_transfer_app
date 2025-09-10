@@ -1060,7 +1060,7 @@ class RegularTaskFactory:
                                               dst_warehouse_id, size_id, transfer_amount)
                             available_qty -= transfer_amount
                             size.transfer_qty_left_virtual -= transfer_amount
-                            move_qty -= 1
+                            move_qty -= transfer_amount
                             
         except Exception as e:
             self.logger.exception("Ошибка в create_single_size_entries: %s", e)
