@@ -916,9 +916,11 @@ class RegularTaskFactory:
                                     BAD_REQUEST_COUNT += 1
                                     self.logger.error("Полученный ответ от ВБ не соответсвует ожиданию, отключаем скрипт")
                                     mode = 'dst'
-                                    new_dst_quota = self.fetch_quota_for_single_warehouse(office_id=dst_warehouse_id, mode='dst')
+                                    new_dst_quota = self.fetch_quota_for_single_warehouse(office_id=dst_warehouse_id, mode=mode)
                                     quota_dict[dst_warehouse_id][mode] = new_dst_quota
-                                    
+                                    mode = 'src'
+                                    new_src_quota = self.fetch_quota_for_single_warehouse(office_id=src_warehouse_id, mode=mode)
+                                    quota_dict[src_warehouse_id][mode] = new_src_quota
                                 else:
                                     self.logger.error("Превышено количество запросов с кодом ошибки, отключаем скрипт")
                                     sys.exit()
