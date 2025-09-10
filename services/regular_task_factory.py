@@ -1107,7 +1107,7 @@ class RegularTaskFactory:
             self.logger.debug("OPTIONS квоты отправлен office_id=%s mode=%s", office_id, mode)
 
             if response_opt.status_code not in [200, 201, 202, 204]:
-                raise
+                raise RuntimeError(f"Unexpected status code on OPTIONS quota request: {response_opt.status_code}")
 
             response = self.api_controller.request(
                 base_url="https://seller-weekly-report.wildberries.ru",
