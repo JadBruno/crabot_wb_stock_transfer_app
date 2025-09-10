@@ -1127,7 +1127,7 @@ class RegularTaskFactory:
             return response_quota
         
         except:
-            self.logger.exception("Ошибка при запросе квоты для office_id=%s mode=%s = %s", office_id, mode)
+            self.logger.exception("Ошибка при запросе квоты для office_id=%s mode=%s", office_id, mode)
             BAD_REQUEST_COUNT +=1
             return 0
 
