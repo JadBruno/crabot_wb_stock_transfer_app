@@ -4,6 +4,7 @@ from requests.cookies import RequestsCookieJar
 from typing import Dict, Union, List, Optional, Tuple
 import logging
 
+
 # Модели
 from models.tasks import ProductToTask, TaskWithProducts, ProductSizeInfo
 
@@ -11,6 +12,8 @@ from models.tasks import ProductToTask, TaskWithProducts, ProductSizeInfo
 from infrastructure.api.sync_controller import SyncAPIController
 from infrastructure.db.mysql.mysql_controller import MySQLController
 from services.db_data_fetcher import DBDataFetcher
+
+BAD_REQUEST_COUNT = 0
 
 class OneTimeTaskProcessor:
     def __init__(self,
@@ -162,6 +165,8 @@ class OneTimeTaskProcessor:
                                             product_on_the_way_entry = (product.product_wb_id, warehouse_entries[size.size_id]['count'], size.size_id, src_warehouse_id, dst_warehouse_id)
                                             
                                             products_on_the_way_array.append(product_on_the_way_entry)
+                                else:
+                                    BAD_REQUEST_COUNT += 1
                                             
                             except Exception as e:
                                 self.logger.exception("Ошибка при отправке запроса: %s", e)

@@ -53,7 +53,8 @@ def main():
                                                   cookie_jar=cookie_jar,
                                                   headers=authorized_headers,
                                                   size_map=db_data_fetcher.size_map,
-                                                  logger=logger)
+                                                  logger=logger,
+                                                  cookie_list=cookie_list)
         
         office_id_list = wb_api_data_fetcher.fetch_warehouse_list(random_present_nmid=db_data_fetcher.max_stock_nmId) # Забрали список складов с сортировкой
 
@@ -70,7 +71,7 @@ def main():
         
         # quota_dict = dict(regular_task_factory.get_warehouse_quotas(office_id_list)) # Забрали квоты по складам
 
-        # mysql_controller.log_warehouse_state(quota_dict) # Залогировали состояние складов по квотам
+        mysql_controller.log_warehouse_state(quota_dict) # Залогировали состояние складов по квотам
 
         one_time_task_processor.process_one_time_tasks(quota_dict=quota_dict, 
                                                        office_id_list=office_id_list) # Запуск обработки разовых заданий
@@ -79,7 +80,9 @@ def main():
 
         regular_task_factory.run() # Запуск обработки регулярных заданий
 
-
+        logger.debug('Запрашиваем квоты еще разок')
+        quota_dict = asyncio.run(wb_api_data_fetcher.fetch_quota(office_id_list=office_id_list)) 
+        mysql_controller.log_warehouse_state(quota_dict) # Залогировали состояние складов по квотам
 
 if __name__ == '__main__':
     start_time = time.perf_counter()

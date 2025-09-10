@@ -21,6 +21,8 @@ from services.db_data_fetcher import DBDataFetcher
 
 Row = Union[Mapping[str, Any], Sequence[Any]]
 
+BAD_REQUEST_COUNT = 0
+BAD_REQUEST_MAX_COUNT = 0
 
 class RegularTaskFactory:
     def __init__(self,
@@ -30,7 +32,8 @@ class RegularTaskFactory:
                  cookie_jar: RequestsCookieJar,
                  headers: Dict,
                  logger,
-                 size_map: Dict[int, str]):
+                 size_map: Dict[int, str],
+                 cookie_list: list):
         self.db_controller = db_controller
         self.api_controller = api_controller
         self.db_data_fetcher = db_data_fetcher
@@ -40,6 +43,7 @@ class RegularTaskFactory:
         self.MIN_AVAILABILITY_DAY_COUNT_FOR_TRANSFER = 14
         self.quota_dict = None
         self.size_map = size_map  # карта размеров айди - тег
+        self.cookie_list = cookie_list
 
     @simple_logger(logger_name=__name__)
     def run(self):
@@ -209,6 +213,39 @@ class RegularTaskFactory:
                 avail_index[key]["days_count"] = len(avail_index[key]["days"])
             else:
                 avail_index[key] = {"days": days_set, "days_count": len(days_set)}
+
+        region_availability_map = defaultdict(dict)
+
+        for key, entry in avail_index.items():
+
+            days = list(entry['days'])
+
+            current_office_id = key[-1]
+
+            region_id = None
+
+            for one_region_id, office_id_list in warehouses_available_to_stock_transfer.items():
+
+                if current_office_id in office_id_list:
+                    region_id = one_region_id
+                    break
+
+            if region_id is not None:
+
+                region_availability_map_index = (key[0], key[1], region_id)
+
+                if region_availability_map_index not in region_availability_map:
+                    region_availability_map[region_availability_map_index] = {'days':[],
+                                                                            'days_count':0}
+
+                region_availability_map[region_availability_map_index]['days'] += days
+
+        for entry in region_availability_map.values():
+        
+            entry['days'] = list(set(entry['days']))
+            entry['days_count'] = len(entry['days'])
+        
+        a = 1  
 
         return avail_index
 
@@ -470,6 +507,8 @@ class RegularTaskFactory:
                                                warehouses_available_to_stock_transfer: Dict,
                                                availability_index: Optional[Dict[Tuple[int, int, int], Dict[str, Any]]] = None,
                                                orders_index: Optional[Dict[Tuple[int, int, int], int]] = None) -> Dict[int, Dict[str, Any]]:
+        
+        
         products: Dict[int, Dict[str, Any]] = {}
         for row in all_product_entries:
             if isinstance(row, Mapping):
@@ -873,8 +912,15 @@ class RegularTaskFactory:
                                             product_on_the_way_entry = (product.product_wb_id, warehouse_entries[size.size_id]['count'], size_map[size.size_id], src_warehouse_id, dst_warehouse_id)
                                             
                                             products_on_the_way_array.append(product_on_the_way_entry)
-                                else:
+                                elif BAD_REQUEST_COUNT < BAD_REQUEST_MAX_COUNT:
+                                    BAD_REQUEST_COUNT += 1
                                     self.logger.error("Полученный ответ от ВБ не соответсвует ожиданию, отключаем скрипт")
+                                    mode = 'dst'
+                                    new_dst_quota = self.fetch_quota_for_single_warehouse(office_id=dst_warehouse_id, mode='dst')
+                                    quota_dict[dst_warehouse_id][mode] = new_dst_quota
+                                    
+                                else:
+                                    self.logger.error("Превышено количество запросов с кодом ошибки, отключаем скрипт")
                                     sys.exit()
 
                             except Exception as e:
@@ -1037,6 +1083,55 @@ class RegularTaskFactory:
         except Exception as e:
             self.logger.exception("Ошибка в send_transfer_request: %s", e)
             return None
+        
+
+
+
+    @simple_logger(logger_name=__name__)
+    def fetch_quota_for_single_warehouse(self,office_id, mode):
+        try:
+            cookie_data = self.cookie_list[-1]
+            cookie_jar = cookie_data['cookies']
+            tokenv3 = cookie_data['tokenV3']
+            headers = self.headers.copy()
+            headers['AuthorizeV3'] = tokenv3
+
+            response_opt = self.api_controller.request(
+                base_url="https://seller-weekly-report.wildberries.ru",
+                method="OPTIONS",
+                endpoint="/ns/shifts/analytics-back/api/v1/quota",
+                params={"officeID": office_id, "type": mode},
+                cookies=cookie_jar,
+                headers=headers)
+                            
+            self.logger.debug("OPTIONS квоты отправлен office_id=%s mode=%s", office_id, mode)
+
+            if response_opt.status_code not in [200, 201, 202, 204]:
+                raise
+
+            response = self.api_controller.request(
+                base_url="https://seller-weekly-report.wildberries.ru",
+                method="GET",
+                endpoint="/ns/shifts/analytics-back/api/v1/quota",
+                params={"officeID": office_id, "type": mode},
+                cookies=cookie_jar,
+                headers=headers)
+            
+            self.logger.debug("GET квоты получен office_id=%s mode=%s status=%s",
+                                office_id, mode, getattr(response, "status_code", None))
+
+            response_json = response.json()
+            response_data = response_json.get("data", {})
+            response_quota = response_data.get("quota", 0)
+            self.logger.debug("Квота office_id=%s mode=%s = %s", office_id, mode, response_quota)
+            return response_quota
+        
+        except:
+            self.logger.exception("Ошибка при запросе квоты для office_id=%s mode=%s = %s", office_id, mode)
+            BAD_REQUEST_COUNT +=1
+            return 0
+
+
 
 
 
