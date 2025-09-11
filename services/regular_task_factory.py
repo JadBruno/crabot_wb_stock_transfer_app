@@ -974,11 +974,11 @@ class RegularTaskFactory:
                                 self.logger.debug(f"POST: {warehouse_req_body}")
                                 self.logger.debug("Отправка заявки: %s", warehouse_req_body)
 
-                                # response = self.send_transfer_request(warehouse_req_body)
-                                # time.sleep(0.1)
-                                # if response.status_code in [200, 201, 202, 204]:
-                                mock_true = True
-                                if mock_true:
+                                response = self.send_transfer_request(warehouse_req_body)
+                                time.sleep(0.1)
+                                if response.status_code in [200, 201, 202, 204]:
+                                # mock_true = True
+                                # if mock_true:
                                     for size in getattr(product, "sizes", []):
                                         if size.size_id in warehouse_entries:
                                             size.transfer_qty_left_real -= warehouse_entries[size.size_id]['count']
