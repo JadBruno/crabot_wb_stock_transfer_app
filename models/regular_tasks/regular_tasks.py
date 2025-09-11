@@ -34,7 +34,10 @@ class RegularTaskForSize: # Тут храним задание по размер
     region_dst_sort_order: Dict[int, int] = field(default_factory=dict) # Порядок регионов-получателей
 
     availability_days_by_warehouse: Dict[str, int] = field(default_factory=dict) # Доступность на складах
+    availability_days_by_region: Dict[int, int] = field(default_factory=dict) # Доступность по регионам
+    
     orders_by_warehouse: Dict[str, int] = field(default_factory=dict) # Заказы по складам
+    orders_by_region: Dict[int, int] = field(default_factory=dict) # Заказы по регионам
 
     # Регионы — создаём новый словарь для каждого экземпляра
     region_data: Dict[int, RegionStock] = field(default_factory=lambda: {

@@ -18,6 +18,7 @@ import pandas as pd
 import sys
 from utils.logger import simple_logger
 from services.db_data_fetcher import DBDataFetcher
+from datetime import datetime, timedelta
 
 Row = Union[Mapping[str, Any], Sequence[Any]]
 
@@ -166,87 +167,143 @@ class RegularTaskFactory:
                     self.logger.exception("Ошибка получения квоты office_id=%s mode=%s: %s", office_id, mode, e)
 
         return quota_dict
-
-
-    @simple_logger(logger_name=__name__)
+    
     def build_article_days(self,
-                           stock_time_data: Union[Sequence[Mapping], Sequence[tuple]],
-                           warehouses_available_to_stock_transfer,
-                            last_n_days: Optional[int] = 30) -> Dict[Tuple[int, int, int], Dict[str, Any]]:
+        stock_time_data: Union[Sequence[Mapping], Sequence[tuple]],
+        warehouses_available_to_stock_transfer,
+        last_n_days: Optional[int] = 30) -> Dict[Tuple[int, int, int], Dict[str, Any]]:
 
-        now = pd.Timestamp.now()
+        now = datetime.now()
 
-        # в DataFrame (для удобства дат и фильтра)
+        # приводим входные данные к единому виду: список словарей
+        normalized_data = []
         if isinstance(stock_time_data, list) and stock_time_data:
             first = stock_time_data[0]
             if isinstance(first, dict):
-                df = pd.DataFrame(stock_time_data)
+                normalized_data = stock_time_data
             else:
-                df = pd.DataFrame(
-                    stock_time_data,
-                    columns=["wb_article_id", "size_id", "warehouse_id", "time_beg", "time_end"]
-                )
+                # считаем, что это кортежи
+                for t in stock_time_data:
+                    normalized_data.append({
+                        "wb_article_id": t[0],
+                        "size_id": t[1],
+                        "warehouse_id": t[2],
+                        "time_beg": t[3],
+                        "time_end": t[4],
+                    })
         else:
-            df = pd.DataFrame(columns=["wb_article_id","size_id","warehouse_id","time_beg","time_end"])
+            normalized_data = []
 
-        # к datetime
-        df["time_beg"] = pd.to_datetime(df["time_beg"])
-        df["time_end"] = pd.to_datetime(df["time_end"])
+        # парсим даты
+        for row in normalized_data:
+            if not isinstance(row["time_beg"], datetime):
+                row["time_beg"] = datetime.fromisoformat(str(row["time_beg"]))
+            if not isinstance(row["time_end"], datetime):
+                row["time_end"] = datetime.fromisoformat(str(row["time_end"]))
 
-        # фильтр последних N дней (если нужен)
+        # фильтр последних N дней
         if last_n_days is not None:
-            cutoff = now - pd.Timedelta(days=last_n_days)
-            df = df[df["time_end"] >= cutoff]
+            cutoff = now - timedelta(days=last_n_days)
+            normalized_data = [r for r in normalized_data if r["time_end"] >= cutoff]
 
         # строим индекс
         avail_index: Dict[Tuple[int, int, int], Dict[str, Any]] = {}
-        for _, row in df.iterrows():
+        for row in normalized_data:
             key = (int(row["wb_article_id"]), int(row["size_id"]), int(row["warehouse_id"]))
-            rng = pd.date_range(row["time_beg"].normalize(),
-                                row["time_end"].normalize(),
-                                freq="D")
-            days_set = set(rng.date)
 
-            # если по ключу уже были интервалы — объединяем (на случай пересечений)
+            # получаем список дней между time_beg и time_end
+            start = row["time_beg"].date()
+            end = row["time_end"].date()
+            days_set = {start + timedelta(days=i) for i in range((end - start).days + 1)}
+
             if key in avail_index:
                 avail_index[key]["days"].update(days_set)
                 avail_index[key]["days_count"] = len(avail_index[key]["days"])
             else:
                 avail_index[key] = {"days": days_set, "days_count": len(days_set)}
 
-        region_availability_map = defaultdict(dict)
+        return avail_index
 
-        for key, entry in avail_index.items():
 
-            days = list(entry['days'])
+    # @simple_logger(logger_name=__name__)
+    # def build_article_days(self,
+    #                        stock_time_data: Union[Sequence[Mapping], Sequence[tuple]],
+    #                        warehouses_available_to_stock_transfer,
+    #                         last_n_days: Optional[int] = 30) -> Dict[Tuple[int, int, int], Dict[str, Any]]:
 
-            current_office_id = key[-1]
+    #     now = pd.Timestamp.now()
 
-            region_id = None
+    #     # в DataFrame (для удобства дат и фильтра)
+    #     if isinstance(stock_time_data, list) and stock_time_data:
+    #         first = stock_time_data[0]
+    #         if isinstance(first, dict):
+    #             df = pd.DataFrame(stock_time_data)
+    #         else:
+    #             df = pd.DataFrame(
+    #                 stock_time_data,
+    #                 columns=["wb_article_id", "size_id", "warehouse_id", "time_beg", "time_end"]
+    #             )
+    #     else:
+    #         df = pd.DataFrame(columns=["wb_article_id","size_id","warehouse_id","time_beg","time_end"])
 
-            for one_region_id, office_id_list in warehouses_available_to_stock_transfer.items():
+    #     # к datetime
+    #     df["time_beg"] = pd.to_datetime(df["time_beg"])
+    #     df["time_end"] = pd.to_datetime(df["time_end"])
 
-                if current_office_id in office_id_list:
-                    region_id = one_region_id
-                    break
+    #     # фильтр последних N дней (если нужен)
+    #     if last_n_days is not None:
+    #         cutoff = now - pd.Timedelta(days=last_n_days)
+    #         df = df[df["time_end"] >= cutoff]
 
-            if region_id is not None:
+    #     # строим индекс
+    #     avail_index: Dict[Tuple[int, int, int], Dict[str, Any]] = {}
+    #     for _, row in df.iterrows():
+    #         key = (int(row["wb_article_id"]), int(row["size_id"]), int(row["warehouse_id"]))
+    #         rng = pd.date_range(row["time_beg"].normalize(),
+    #                             row["time_end"].normalize(),
+    #                             freq="D")
+    #         days_set = set(rng.date)
 
-                region_availability_map_index = (key[0], key[1], region_id)
+    #         # если по ключу уже были интервалы — объединяем (на случай пересечений)
+    #         if key in avail_index:
+    #             avail_index[key]["days"].update(days_set)
+    #             avail_index[key]["days_count"] = len(avail_index[key]["days"])
+    #         else:
+    #             avail_index[key] = {"days": days_set, "days_count": len(days_set)}
 
-                if region_availability_map_index not in region_availability_map:
-                    region_availability_map[region_availability_map_index] = {'days':[],
-                                                                            'days_count':0}
+    #     # region_availability_map = defaultdict(dict)
 
-                region_availability_map[region_availability_map_index]['days'] += days
+    #     # for key, entry in avail_index.items():
 
-        for entry in region_availability_map.values():
+    #     #     days = list(entry['days'])
+
+    #     #     current_office_id = key[-1]
+
+    #     #     region_id = None
+
+    #     #     for one_region_id, office_id_list in warehouses_available_to_stock_transfer.items():
+
+    #     #         if current_office_id in office_id_list:
+    #     #             region_id = one_region_id
+    #     #             break
+
+    #     #     if region_id is not None:
+
+    #     #         region_availability_map_index = (key[0], key[1], region_id)
+
+    #     #         if region_availability_map_index not in region_availability_map:
+    #     #             region_availability_map[region_availability_map_index] = {'days':[],
+    #     #                                                                     'days_count':0}
+
+    #     #         region_availability_map[region_availability_map_index]['days'] += days
+
+    #     # for entry in region_availability_map.values():
         
-            entry['days'] = list(set(entry['days']))
-            entry['days_count'] = len(entry['days'])
+    #     #     entry['days'] = list(set(entry['days']))
+    #     #     entry['days_count'] = len(entry['days'])
   
 
-        return avail_index
+    #     return avail_index
 
 
     @simple_logger(logger_name=__name__)
@@ -324,8 +381,10 @@ class RegularTaskFactory:
                         size=size_data.get("size_name"),
                         tech_size_id=size_id,
                         total_stock_for_product=size_data.get("total_qty", 0),
-                        availability_days_by_warehouse=size_data.get('availability_days_by_warehouse', {}) or {},
-                        orders_by_warehouse=size_data.get('orders_by_warehouse', {}) or {})
+                        availability_days_by_warehouse=size_data.get('availability_days_by_warehouse', {}) or {},\
+                        availability_days_by_region=size_data.get('availability_days_by_region', {}) or {},
+                        orders_by_warehouse=size_data.get('orders_by_warehouse', {}) or {},
+                        orders_by_region=size_data.get('orders_by_region', {}) or {})
 
                     # Заполняем регионы
                     for region_id, region_data in size_data.get("regions", {}).items():
@@ -416,7 +475,7 @@ class RegularTaskFactory:
                                 for warehouse_id in warehouse_for_region_list:
                                     days_ok = (task_for_size.availability_days_by_warehouse.get(warehouse_id, 0)
                                             >= self.MIN_AVAILABILITY_DAY_COUNT_FOR_TRANSFER)
-                                    orders = task_for_size.orders_by_warehouse.get(warehouse_id, 0)
+                                    orders = task_for_size.orders_by_region.get(region_id, 0)
                                     # не уходим в минус по региону-источнику после списания заказов
                                     orders_ok = (orders is not None and
                                                 (src_region_data_entry.stock_by_region_after - orders) >= 0)
@@ -509,7 +568,7 @@ class RegularTaskFactory:
                                                availability_index: Optional[Dict[Tuple[int, int, int], Dict[str, Any]]] = None,
                                                orders_index: Optional[Dict[Tuple[int, int, int], int]] = None) -> Dict[int, Dict[str, Any]]:
         
-        
+        self.logger.debug("Старт create_product_collection_with_regions() для %s продуктовых записей", len(all_product_entries) if all_product_entries else 0)
         products: Dict[int, Dict[str, Any]] = {}
         for row in all_product_entries:
             if isinstance(row, Mapping):
@@ -521,21 +580,19 @@ class RegularTaskFactory:
                 region_id = row.get("region_id") or row.get("region")
                 
             else:
+                self.logger.debug("Пропускаем строку с неверным форматом: %s", row)
                 continue
-
-
-            if wb_article_id == 9672663 and size_id == 1 and warehouse_id == 117419:
-
-                a = 1
 
             try:
                 wb_article_id = int(wb_article_id)
                 warehouse_id  = int(warehouse_id)
                 size_id       = int(size_id)
             except (TypeError, ValueError):
+                self.logger.debug("Пропускаем строку с неверным ID: %s", row)
                 continue
 
             if region_id is None:
+                self.logger.debug("Пропускаем строку с пустым region_id: %s", row)
                 continue
             try:
                 region_id = int(region_id)
@@ -545,12 +602,18 @@ class RegularTaskFactory:
             qty = int(qty) if qty is not None else 0
             size_name = str(size_name) if size_name is not None else ""
 
+
             art = products.setdefault(wb_article_id, {"wb_article_id": wb_article_id, "total_qty": 0, "sizes": {}})
             size_node = art["sizes"].setdefault(size_id, {
                 "wb_article_id": wb_article_id, "size_id": size_id, "size_name": size_name or "",
                 "total_qty": 0, "regions": {},"availability_days_by_warehouse": {}, "availability_days_by_region": {},
                 "orders_by_warehouse": {}, "orders_by_region":{}
             })
+
+            # for region_id in self.db_data_fetcher.all_wb_regions_with_office_list_dict.keys():
+            #     size_node['orders_by_region'].setdefault(region_id, 0)
+
+
             if not size_node["size_name"] and size_name:
                 size_node["size_name"] = size_name
 
@@ -575,7 +638,8 @@ class RegularTaskFactory:
                 oc = orders_index.get((wb_article_id, size_id, warehouse_id))
                 if oc is not None:
                     size_node["orders_by_warehouse"][warehouse_id] = oc
-                
+                                
+        self.logger.debug("Собрано %s продуктов", len(products))
 
         if availability_index is not None:
             for art in products.values():
@@ -589,8 +653,21 @@ class RegularTaskFactory:
                                 union_days |= info["days"]
                         size_node["availability_days_by_region"][rid] = len(union_days)
 
+        self.logger.debug("Заполняем отсутствующие регионы для продуктов")
         self.fill_empty_regions_for_products_in_product_collection(products=products, 
                                                                    warehouses_available_to_stock_transfer=warehouses_available_to_stock_transfer)
+
+
+        for product in products.values():
+            for size in product['sizes'].values():
+                for region in size['regions'].values():
+                    region_id = region['region_id']
+                    for wh in region['warehouses'].keys():
+                        if wh not in size['orders_by_warehouse']:
+                            size['orders_by_warehouse'][wh] = 0
+                    total_orders_for_region = sum(size['orders_by_warehouse'][office_id] for office_id in self.db_data_fetcher.all_wb_regions_with_office_list_dict[region_id] if office_id in size['orders_by_warehouse'])
+
+                    size['orders_by_region'][region['region_id']] = total_orders_for_region
 
         return products
 
@@ -897,11 +974,11 @@ class RegularTaskFactory:
                                 self.logger.debug(f"POST: {warehouse_req_body}")
                                 self.logger.debug("Отправка заявки: %s", warehouse_req_body)
 
-                                response = self.send_transfer_request(warehouse_req_body)
-                                time.sleep(0.1)
-                                if response.status_code in [200, 201, 202, 204]:
-                                # mock_true = True
-                                # if mock_true:
+                                # response = self.send_transfer_request(warehouse_req_body)
+                                # time.sleep(0.1)
+                                # if response.status_code in [200, 201, 202, 204]:
+                                mock_true = True
+                                if mock_true:
                                     for size in getattr(product, "sizes", []):
                                         if size.size_id in warehouse_entries:
                                             size.transfer_qty_left_real -= warehouse_entries[size.size_id]['count']

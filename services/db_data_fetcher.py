@@ -21,6 +21,7 @@ class DBDataFetcher:
         self.all_product_entries_for_regular_task = None
         self.product_on_the_way_for_regular_task = None
         self.all_wb_offices_with_regions_dict = None
+        self.all_wb_regions_with_office_list_dict = None
 
         # Забираем все данные
         self.fetch_max_stock_nmId()
@@ -116,7 +117,16 @@ class DBDataFetcher:
     def fetch_all_wb_offices_with_regions_dict(self) -> dict | None:
         all_wb_offices_with_regions_dict = self.db_controller.get_all_wb_offices_with_regions()
         self.all_wb_offices_with_regions_dict = all_wb_offices_with_regions_dict
-        return all_wb_offices_with_regions_dict
+        
+        # Это будет словарь регион: [офис1, офис2, ...]
+        self.all_wb_regions_with_office_list_dict = {}
+        for office, region in all_wb_offices_with_regions_dict.items():
+            if region not in self.all_wb_regions_with_office_list_dict:
+                self.all_wb_regions_with_office_list_dict[region] = [office]
+            else:
+                self.all_wb_regions_with_office_list_dict[region].append(office)
+        
+        return all_wb_offices_with_regions_dict, self.all_wb_regions_with_office_list_dict
 
 
     

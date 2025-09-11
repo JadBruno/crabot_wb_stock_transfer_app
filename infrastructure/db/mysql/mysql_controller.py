@@ -514,7 +514,8 @@ class MySQLController():
     def get_stock_availability_data(self):
         sql = """
             SELECT wb_article_id, size_id, warehouse_id, time_beg, time_end
-            FROM mp_data.a_wb_catalog_stocks;"""
+            FROM mp_data.a_wb_catalog_stocks
+            WHERE time_end > NOW() - INTERVAL 30 DAY;"""
         try:
             result = self.db.execute_query(sql)
             
