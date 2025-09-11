@@ -853,7 +853,6 @@ class RegularTaskFactory:
                                 response = self.send_transfer_request(warehouse_req_body)
                                 time.sleep(self.send_transfer_request_cooldown)
                                 if response.status_code in [200, 201, 202, 204]:
-
                                 # class MockResponse:
                                 #     def __init__(self, status_code):
                                 #         self.status_code = status_code
