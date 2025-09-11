@@ -21,8 +21,6 @@ from services.db_data_fetcher import DBDataFetcher
 
 Row = Union[Mapping[str, Any], Sequence[Any]]
 
-BAD_REQUEST_COUNT = 0
-BAD_REQUEST_MAX_COUNT = 0
 
 class RegularTaskFactory:
     def __init__(self,
@@ -44,6 +42,8 @@ class RegularTaskFactory:
         self.quota_dict = None
         self.size_map = size_map  # карта размеров айди - тег
         self.cookie_list = cookie_list
+        self.bad_request_count = 0
+        self.bad_request_max_count = 0
 
     @simple_logger(logger_name=__name__)
     def run(self):
@@ -244,8 +244,7 @@ class RegularTaskFactory:
         
             entry['days'] = list(set(entry['days']))
             entry['days_count'] = len(entry['days'])
-        
-        a = 1  
+  
 
         return avail_index
 
@@ -305,6 +304,8 @@ class RegularTaskFactory:
 
         warehouse_src_sort_order = self.sort_destinations_by_key(warehouse_priority_dict, key='src_priority')
         warehouse_dst_sort_order = self.sort_destinations_by_key(warehouse_priority_dict, key='dst_priority')
+
+        warehouses_with_regions = {val: k for k, vals in warehouses_available_to_stock_transfer.items() for val in vals}
 
         for product in product_collection.values():
 
@@ -548,7 +549,7 @@ class RegularTaskFactory:
             size_node = art["sizes"].setdefault(size_id, {
                 "wb_article_id": wb_article_id, "size_id": size_id, "size_name": size_name or "",
                 "total_qty": 0, "regions": {},"availability_days_by_warehouse": {}, "availability_days_by_region": {},
-                "orders_by_warehouse": {}
+                "orders_by_warehouse": {}, "orders_by_region":{}
             })
             if not size_node["size_name"] and size_name:
                 size_node["size_name"] = size_name
@@ -574,6 +575,7 @@ class RegularTaskFactory:
                 oc = orders_index.get((wb_article_id, size_id, warehouse_id))
                 if oc is not None:
                     size_node["orders_by_warehouse"][warehouse_id] = oc
+                
 
         if availability_index is not None:
             for art in products.values():
@@ -912,8 +914,8 @@ class RegularTaskFactory:
                                             product_on_the_way_entry = (product.product_wb_id, warehouse_entries[size.size_id]['count'], size_map[size.size_id], src_warehouse_id, dst_warehouse_id)
                                             
                                             products_on_the_way_array.append(product_on_the_way_entry)
-                                elif BAD_REQUEST_COUNT < BAD_REQUEST_MAX_COUNT:
-                                    BAD_REQUEST_COUNT += 1
+                                elif self.bad_request_count < self.bad_request_max_count:
+                                    self.bad_request_count += 1
                                     self.logger.error("Полученный ответ от ВБ не соответсвует ожиданию, отключаем скрипт")
                                     mode = 'dst'
                                     new_dst_quota = self.fetch_quota_for_single_warehouse(office_id=dst_warehouse_id, mode=mode)
@@ -1130,7 +1132,7 @@ class RegularTaskFactory:
         
         except:
             self.logger.exception("Ошибка при запросе квоты для office_id=%s mode=%s", office_id, mode)
-            BAD_REQUEST_COUNT +=1
+            self.bad_request_count +=1
             return 0
 
 

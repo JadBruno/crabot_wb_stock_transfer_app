@@ -20,6 +20,7 @@ class DBDataFetcher:
         self.regular_task_row = None
         self.all_product_entries_for_regular_task = None
         self.product_on_the_way_for_regular_task = None
+        self.all_wb_offices_with_regions_dict = None
 
         # Забираем все данные
         self.fetch_max_stock_nmId()
@@ -31,6 +32,7 @@ class DBDataFetcher:
         self.fetch_size_map()
         self.fetch_blocked_warehouses_for_skus()
         self.fetch_product_on_the_way_for_regular_task()
+        self.fetch_all_wb_offices_with_regions_dict()
 
     @simple_logger(logger_name=__name__)
     def fetch_max_stock_nmId(self) -> int | None:
@@ -109,3 +111,12 @@ class DBDataFetcher:
         product_on_the_way_for_regular_task = self.db_controller.get_products_transfers_on_the_way_with_region()
         self.product_on_the_way_for_regular_task = product_on_the_way_for_regular_task
         return product_on_the_way_for_regular_task
+
+    @simple_logger(logger_name=__name__)
+    def fetch_all_wb_offices_with_regions_dict(self) -> dict | None:
+        all_wb_offices_with_regions_dict = self.db_controller.get_all_wb_offices_with_regions()
+        self.all_wb_offices_with_regions_dict = all_wb_offices_with_regions_dict
+        return all_wb_offices_with_regions_dict
+
+
+    

@@ -13,7 +13,6 @@ from infrastructure.api.sync_controller import SyncAPIController
 from infrastructure.db.mysql.mysql_controller import MySQLController
 from services.db_data_fetcher import DBDataFetcher
 
-BAD_REQUEST_COUNT = 0
 
 class OneTimeTaskProcessor:
     def __init__(self,
@@ -29,6 +28,7 @@ class OneTimeTaskProcessor:
         self.cookie_jar = cookie_jar
         self.headers = headers
         self.logger = logger
+        self.bad_request_count = 0
 
 
     def process_one_time_tasks(self, quota_dict, office_id_list):
@@ -166,7 +166,7 @@ class OneTimeTaskProcessor:
                                             
                                             products_on_the_way_array.append(product_on_the_way_entry)
                                 else:
-                                    BAD_REQUEST_COUNT += 1
+                                    self.bad_request_count += 1
                                             
                             except Exception as e:
                                 self.logger.exception("Ошибка при отправке запроса: %s", e)

@@ -639,4 +639,19 @@ class MySQLController():
 
         except Exception as e:
             return False
+        
+
+
+    @simple_logger(logger_name=__name__)
+    def get_all_wb_offices_with_regions(self):
+        sql = """SELECT * FROM mp_data.a_wb_stock_transfer_wb_offices"""
+        try:
+            result = self.db.execute_query(sql)
+            result_dict = {}
+            for entry in result:
+                result_dict[entry['office_id']] = entry['region_id']
+                
+            return result_dict
+        except Exception:
+            return False
 
