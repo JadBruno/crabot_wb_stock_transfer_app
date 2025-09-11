@@ -60,29 +60,30 @@ def main():
 
         now = datetime.now()
 
-        if now.minute != 0 and now.second != 1:
-                next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=1)
-                wait_seconds = (next_hour - now).total_seconds()
-                wait_seconds += 5 # Добавляем 1 секунду для надежности
-                logger.info(f"Ждём до {next_hour.strftime('%H:%M:%S')} ({int(wait_seconds)} сек.)")
-                time.sleep(wait_seconds)
+        quota_dict = {office_id: {'src':1000000, 'dst':1000000} for office_id in office_id_list}
+
+        try:
+                # if now.minute != 0 and now.second != 1:
+                #         next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=1)
+                #         wait_seconds = (next_hour - now).total_seconds()
+                #         wait_seconds += 5 # Добавляем 1 секунду для надежности
+                #         logger.info(f"Ждём до {next_hour.strftime('%H:%M:%S')} ({int(wait_seconds)} сек.)")
+                #         time.sleep(wait_seconds)
+                        
+                # quota_dict = asyncio.run(wb_api_data_fetcher.fetch_quota(office_id_list=office_id_list)) 
                 
-        quota_dict = asyncio.run(wb_api_data_fetcher.fetch_quota(office_id_list=office_id_list)) 
-        
-        # quota_dict = {507: {'src': 39835, 'dst': 0}, 117986: {'src': 46346, 'dst': 354353}, 120762: {'src': 10000, 'dst': 74184}, 2737: {'src': 24709, 'dst': 0}, 130744: {'src': 0, 'dst': 459945}, 686: {'src': 24992, 'dst': 7000}, 1733: {'src': 24340, 'dst': 0}, 206348: {'src': 10000, 'dst': 72554}, 208277: {'src': 0, 'dst': 84267}, 301760: {'src': 0, 'dst': 93503}, 301809: {'src': 0, 'dst': 493275}, 301983: {'src': 0, 'dst': 3355}}
+                regular_task_factory.quota_dict = quota_dict # Передали квоты в фабрику заданий
 
-        mysql_controller.log_warehouse_state(quota_dict) # Залогировали состояние складов по квотам
+                regular_task_factory.run() # Запуск обработки регулярных заданий
 
-        one_time_task_processor.process_one_time_tasks(quota_dict=quota_dict, 
-                                                       office_id_list=office_id_list) # Запуск обработки разовых заданий
-
-        regular_task_factory.quota_dict = quota_dict # Передали квоты в фабрику заданий
-
-        regular_task_factory.run() # Запуск обработки регулярных заданий
-
-        logger.debug('Запрашиваем квоты еще разок')
-        quota_dict = asyncio.run(wb_api_data_fetcher.fetch_quota(office_id_list=office_id_list)) 
-        mysql_controller.log_warehouse_state(quota_dict) # Залогировали состояние складов по квотам
+                one_time_task_processor.process_one_time_tasks(quota_dict=quota_dict, 
+                                                                office_id_list=office_id_list) # Запуск обработки разовых заданий
+        except Exception as e:
+                logger.error(f"Ошибка в основном цикле: {e}")
+        finally:
+                logger.debug('Запрашиваем квоты еще разок перед отключением скрипта')
+                quota_dict_unmocked = asyncio.run(wb_api_data_fetcher.fetch_quota(office_id_list=office_id_list)) 
+                mysql_controller.log_warehouse_state(quota_dict_unmocked) # Залогировали состояние складов по квотам
 
 if __name__ == '__main__':
     start_time = time.perf_counter()

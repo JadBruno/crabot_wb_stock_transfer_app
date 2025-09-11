@@ -4,17 +4,12 @@ from typing import Any, Dict, Iterable, Union, Mapping, Sequence, Callable, Opti
 from infrastructure.db.mysql.mysql_controller import MySQLController
 from infrastructure.api.sync_controller import SyncAPIController
 from requests.cookies import RequestsCookieJar
-import logging
 from utils.data_formating import ( _extract_min_target_map, _region_id_to_key, \
                                   _build_region_to_warehouses, _collect_destination_warehouses_for_plan, \
                                     _collect_source_warehouses_for_article)
 from models.tasks import TaskWithProducts, ProductSizeInfo, ProductToTask
 import math
-from itertools import islice
-import json
 from models.regular_tasks.regular_tasks import RegularTaskForSize, RegionStock
-import math
-import pandas as pd
 import sys
 from utils.logger import simple_logger
 from services.db_data_fetcher import DBDataFetcher
@@ -43,8 +38,12 @@ class RegularTaskFactory:
         self.quota_dict = None
         self.size_map = size_map  # карта размеров айди - тег
         self.cookie_list = cookie_list
+        self.current_cookie_index = 0
         self.bad_request_count = 0
-        self.bad_request_max_count = 0
+        self.bad_request_max_count = 10
+        self.timeout_error_request_cooldown_list = [1, 3, 10, 30, 60, 120]
+        self.timeout_error_cooldown_index = 0
+        self.send_transfer_request_cooldown = 0.1
 
     @simple_logger(logger_name=__name__)
     def run(self):
@@ -94,11 +93,7 @@ class RegularTaskFactory:
 
             office_id_list = list(warehouse_priority_dict.keys())
             
-            # quota_dict = {507: {'src': 39835, 'dst': 0}, 117986: {'src': 46346, 'dst': 354353}, 120762: {'src': 10000, 'dst': 74184}, 2737: {'src': 24709, 'dst': 0}, 130744: {'src': 0, 'dst': 459945}, 686: {'src': 24992, 'dst': 0}, 1733: {'src': 24340, 'dst': 0}, 206348: {'src': 10000, 'dst': 72554}, 208277: {'src': 0, 'dst': 84267}, 301760: {'src': 0, 'dst': 93503}, 301809: {'src': 0, 'dst': 493275}, 301983: {'src': 0, 'dst': 3355}}
-            if self.quota_dict is None:
-                quota_dict = dict(self.get_warehouse_quotas(office_id_list))
-            else:
-                quota_dict = self.quota_dict
+            quota_dict = self.quota_dict
 
             self.remove_unavailable_warehouses_from_current_session(quota_dict=quota_dict,
                                                                         region_priority_dict=region_priority_dict,
@@ -116,57 +111,7 @@ class RegularTaskFactory:
                                                              blocked_warehouses_for_skus=blocked_warehouses_for_skus)  
 
 
-            a = 1
 
-    @simple_logger(logger_name=__name__)
-    def get_warehouse_quotas(self, office_id_list):
-        self.logger.debug("Старт get_warehouse_quotas() для офисов: %s", office_id_list)
-        quota_dict = defaultdict(dict)
-        modes = ["src", "dst"]
-
-        for office_id in office_id_list:
-            for mode in modes:
-                try:
-                    time.sleep(3)
-                    response = self.api_controller.request(
-                        base_url="https://seller-weekly-report.wildberries.ru",
-                        method="OPTIONS",
-                        endpoint="/ns/shifts/analytics-back/api/v1/quota",
-                        params={"officeID": office_id, "type": mode},
-                        cookies=self.cookie_jar,
-                        headers=self.headers)
-                    
-                    if response is None or response.status_code not in (200,201,202,203,204):
-                        self.logger.error("Полученный ответ от ВБ не соответсвует ожидание, отключаем скрипт")
-                        sys.exit()
-                        
-                        
-                    self.logger.debug("OPTIONS квоты отправлен office_id=%s mode=%s", office_id, mode)
-
-                    response = self.api_controller.request(
-                        base_url="https://seller-weekly-report.wildberries.ru",
-                        method="GET",
-                        endpoint="/ns/shifts/analytics-back/api/v1/quota",
-                        params={"officeID": office_id, "type": mode},
-                        cookies=self.cookie_jar,
-                        headers=self.headers)
-                    
-                    if response is None:
-                        self.logger.error("Полученный ответ от ВБ не соответсвует ожидание, отключаем скрипт")
-                        sys.exit()
-                    
-                    self.logger.debug("GET квоты получен office_id=%s mode=%s status=%s",
-                                      office_id, mode, getattr(response, "status_code", None))
-
-                    response_json = response.json()
-                    response_data = response_json.get("data", {})
-                    response_quota = response_data.get("quota", 0)
-                    quota_dict[office_id][mode] = response_quota
-                    self.logger.debug("Квота office_id=%s mode=%s = %s", office_id, mode, response_quota)
-                except Exception as e:
-                    self.logger.exception("Ошибка получения квоты office_id=%s mode=%s: %s", office_id, mode, e)
-
-        return quota_dict
     
     def build_article_days(self,
         stock_time_data: Union[Sequence[Mapping], Sequence[tuple]],
@@ -223,87 +168,6 @@ class RegularTaskFactory:
                 avail_index[key] = {"days": days_set, "days_count": len(days_set)}
 
         return avail_index
-
-
-    # @simple_logger(logger_name=__name__)
-    # def build_article_days(self,
-    #                        stock_time_data: Union[Sequence[Mapping], Sequence[tuple]],
-    #                        warehouses_available_to_stock_transfer,
-    #                         last_n_days: Optional[int] = 30) -> Dict[Tuple[int, int, int], Dict[str, Any]]:
-
-    #     now = pd.Timestamp.now()
-
-    #     # в DataFrame (для удобства дат и фильтра)
-    #     if isinstance(stock_time_data, list) and stock_time_data:
-    #         first = stock_time_data[0]
-    #         if isinstance(first, dict):
-    #             df = pd.DataFrame(stock_time_data)
-    #         else:
-    #             df = pd.DataFrame(
-    #                 stock_time_data,
-    #                 columns=["wb_article_id", "size_id", "warehouse_id", "time_beg", "time_end"]
-    #             )
-    #     else:
-    #         df = pd.DataFrame(columns=["wb_article_id","size_id","warehouse_id","time_beg","time_end"])
-
-    #     # к datetime
-    #     df["time_beg"] = pd.to_datetime(df["time_beg"])
-    #     df["time_end"] = pd.to_datetime(df["time_end"])
-
-    #     # фильтр последних N дней (если нужен)
-    #     if last_n_days is not None:
-    #         cutoff = now - pd.Timedelta(days=last_n_days)
-    #         df = df[df["time_end"] >= cutoff]
-
-    #     # строим индекс
-    #     avail_index: Dict[Tuple[int, int, int], Dict[str, Any]] = {}
-    #     for _, row in df.iterrows():
-    #         key = (int(row["wb_article_id"]), int(row["size_id"]), int(row["warehouse_id"]))
-    #         rng = pd.date_range(row["time_beg"].normalize(),
-    #                             row["time_end"].normalize(),
-    #                             freq="D")
-    #         days_set = set(rng.date)
-
-    #         # если по ключу уже были интервалы — объединяем (на случай пересечений)
-    #         if key in avail_index:
-    #             avail_index[key]["days"].update(days_set)
-    #             avail_index[key]["days_count"] = len(avail_index[key]["days"])
-    #         else:
-    #             avail_index[key] = {"days": days_set, "days_count": len(days_set)}
-
-    #     # region_availability_map = defaultdict(dict)
-
-    #     # for key, entry in avail_index.items():
-
-    #     #     days = list(entry['days'])
-
-    #     #     current_office_id = key[-1]
-
-    #     #     region_id = None
-
-    #     #     for one_region_id, office_id_list in warehouses_available_to_stock_transfer.items():
-
-    #     #         if current_office_id in office_id_list:
-    #     #             region_id = one_region_id
-    #     #             break
-
-    #     #     if region_id is not None:
-
-    #     #         region_availability_map_index = (key[0], key[1], region_id)
-
-    #     #         if region_availability_map_index not in region_availability_map:
-    #     #             region_availability_map[region_availability_map_index] = {'days':[],
-    #     #                                                                     'days_count':0}
-
-    #     #         region_availability_map[region_availability_map_index]['days'] += days
-
-    #     # for entry in region_availability_map.values():
-        
-    #     #     entry['days'] = list(set(entry['days']))
-    #     #     entry['days_count'] = len(entry['days'])
-  
-
-    #     return avail_index
 
 
     @simple_logger(logger_name=__name__)
@@ -901,10 +765,18 @@ class RegularTaskFactory:
                     
                     if status_code != 200:
                         self.logger.error("Не получилось получить актуальные стоки для nmID=%s", getattr(product, "product_wb_id", None))
-                        if status_code not in (200,201,202,203,204):
+                        if status_code in (429, 500, 502, 503, 504) and self.bad_request_count < self.bad_request_max_count:
+                            self.bad_request_count += 1
+                            self.logger.error("Ошибка %s при получении стоков nmID=%s. Пропускаем продукт.",
+                                              status_code, getattr(product, "product_wb_id", None))
+                            cooldown_needed = self.timeout_error_request_cooldown_list[self.timeout_error_cooldown_index] * self.bad_request_count
+                            self.logger.error("Ждём %s секунд перед следующей попыткой.", cooldown_needed)
+                            time.sleep(cooldown_needed)
+                            self.timeout_error_cooldown_index = (self.timeout_error_cooldown_index + 1) % len(self.timeout_error_request_cooldown_list)
+                            continue
+                        elif status_code not in (200,201,202,203,204):
                             self.logger.error("Полученный ответ от ВБ не соответсвует ожидание, отключаем скрипт")
                             sys.exit()
-                            break
                     
                     self.logger.debug("Стоки для nmID=%s: %s", getattr(product, "product_wb_id", None), product_stocks)
 
@@ -921,7 +793,7 @@ class RegularTaskFactory:
                 for src_warehouse_id in available_warehouses_from_ids:
                     warehouse_quota_src = quota_dict[src_warehouse_id]['src']  # Если квота на нуле, пропускаем
                     if warehouse_quota_src < 1:
-                        self.logger.debug(f"Недостаточно квоты на складе-доноре. src: {src_warehouse_id} - {src_warehouse_quota}")
+                        self.logger.debug(f"Недостаточно квоты на складе-доноре. src: {src_warehouse_id} - {warehouse_quota_src}. Пропуск.")
                         continue
 
                     self.logger.debug("Обработка склада-донора src_warehouse_id=%s", src_warehouse_id)
@@ -954,8 +826,12 @@ class RegularTaskFactory:
                         dst_warehouse_quota = quota_dict[dst_warehouse_id]['dst'] # Если квота на нуле, пропускаем
                         src_warehouse_quota = quota_dict[src_warehouse_id]['src']
 
-                        if dst_warehouse_quota < 1 or src_warehouse_quota < 1:
-                            self.logger.debug(f"На одном из складов. src: {src_warehouse_id} - {src_warehouse_quota} | dst: {dst_warehouse_id} - {dst_warehouse_quota}")
+                        if dst_warehouse_quota is not None and src_warehouse_quota is not None \
+                            and (dst_warehouse_quota < 1 or src_warehouse_quota < 1):
+                            
+                            self.logger.debug(f"""Недостаточно квот на одном из складов. 
+                                              src: {src_warehouse_id} - {src_warehouse_quota} | 
+                                              dst: {dst_warehouse_id} - {dst_warehouse_quota}""")
 
                             continue
 
@@ -975,25 +851,37 @@ class RegularTaskFactory:
                                 self.logger.debug("Отправка заявки: %s", warehouse_req_body)
 
                                 response = self.send_transfer_request(warehouse_req_body)
-                                time.sleep(0.1)
+                                time.sleep(self.send_transfer_request_cooldown)
                                 if response.status_code in [200, 201, 202, 204]:
+
+                                # class MockResponse:
+                                #     def __init__(self, status_code):
+                                #         self.status_code = status_code
+                                # response = MockResponse(200)  # Заглушка для теста
                                 # mock_true = True
                                 # if mock_true:
                                     for size in getattr(product, "sizes", []):
                                         if size.size_id in warehouse_entries:
-                                            size.transfer_qty_left_real -= warehouse_entries[size.size_id]['count']
-                                            self.logger.debug(
-                                                "Обновлен transfer_qty_left_real для size_id=%s: -%s",
-                                                size.size_id, warehouse_entries[size.size_id]['count'])
                                             quota_dict[src_warehouse_id]['src'] -= warehouse_entries[size.size_id]['count']
                                             quota_dict[dst_warehouse_id]['dst'] -= warehouse_entries[size.size_id]['count']
 
                                             product_on_the_way_entry = (product.product_wb_id, warehouse_entries[size.size_id]['count'], size_map[size.size_id], src_warehouse_id, dst_warehouse_id)
                                             
                                             products_on_the_way_array.append(product_on_the_way_entry)
-                                elif self.bad_request_count < self.bad_request_max_count:
+                                elif response.status_code in [429, 500, 502, 503, 504] and self.bad_request_count < self.bad_request_max_count:
+                                    self.logger.error("Ошибка %s при отправке заявки на трансфер nmID=%s. Пропускаем заявку.",
+                                                      response.status_code, getattr(product, "product_wb_id", None))
+                                    # При ошибках сервера и превышении лимитов делаем кулдаун и пробуем заново запросить квоты
+                                    cooldown_needed = self.timeout_error_request_cooldown_list[self.timeout_error_cooldown_index]
+                                    self.logger.debug(f"Делаем кулдаун {cooldown_needed} секунд перед следующим запросом")
+                                    time.sleep(cooldown_needed)
                                     self.bad_request_count += 1
-                                    self.logger.error("Полученный ответ от ВБ не соответсвует ожиданию, отключаем скрипт")
+                                    self.timeout_error_cooldown_index = (self.timeout_error_cooldown_index + 1) % len(self.timeout_error_request_cooldown_list)
+
+
+                                elif self.bad_request_count < self.bad_request_max_count and response.status_code in [400, 403]:
+                                    self.bad_request_count += 1
+                                    self.logger.error("Полученный ответ от ВБ не соответсвует ожиданию, попробуем перезапросить квоты")
                                     mode = 'dst'
                                     new_dst_quota = self.fetch_quota_for_single_warehouse(office_id=dst_warehouse_id, mode=mode)
                                     quota_dict[dst_warehouse_id][mode] = new_dst_quota
@@ -1039,13 +927,19 @@ class RegularTaskFactory:
     def fetch_stocks_by_nmid(self, nmid: int, warehouses_in_task_list: list):
         self.logger.debug("Запрос стоков по nmID=%s для складов: %s", nmid, warehouses_in_task_list)
         try:
+            cookies = self.cookie_list[self.current_cookie_index]['cookies']
+            tokenv3 = self.cookie_list[self.current_cookie_index]['tokenV3']
+            headers = self.headers
+            headers['AuthorizeV3'] = tokenv3
+            self.current_cookie_index = (self.current_cookie_index + 1) % len(self.cookie_list)
+            
             response = self.api_controller.request(
                 base_url="https://seller-weekly-report.wildberries.ru",
                 method="GET",
                 endpoint="/ns/shifts/analytics-back/api/v1/stocks",
                 params={"nmID": str(nmid)},
-                cookies=self.cookie_jar,
-                headers=self.headers)
+                cookies=cookies,
+                headers=headers)
             
             self.logger.debug("Ответ по стокам: status=%s", getattr(response, "status_code", None))
 
@@ -1150,13 +1044,19 @@ class RegularTaskFactory:
     def send_transfer_request(self, request_body: dict):
         self.logger.debug("Отправка transfer request: %s", request_body)
         try:
+            cookies = self.cookie_list[self.current_cookie_index]['cookies']
+            tokenv3 = self.cookie_list[self.current_cookie_index]['tokenV3']
+            headers = self.headers
+            headers['AuthorizeV3'] = tokenv3
+            self.current_cookie_index = (self.current_cookie_index + 1) % len(self.cookie_list) 
+
             response = self.api_controller.request(
                 base_url="https://seller-weekly-report.wildberries.ru",
                 method="POST",
                 endpoint="/ns/shifts/analytics-back/api/v1/order",
                 json=request_body,
-                cookies=self.cookie_jar,
-                headers=self.headers)
+                cookies=cookies,
+                headers=headers)
             
             self.logger.info("Ответ на transfer request: status=%s", getattr(response, "status_code", None))
             return response
@@ -1164,17 +1064,14 @@ class RegularTaskFactory:
         except Exception as e:
             self.logger.exception("Ошибка в send_transfer_request: %s", e)
             return None
-        
-
 
 
     @simple_logger(logger_name=__name__)
     def fetch_quota_for_single_warehouse(self,office_id, mode):
         try:
-            cookie_data = self.cookie_list[-1]
-            cookie_jar = cookie_data['cookies']
-            tokenv3 = cookie_data['tokenV3']
-            headers = self.headers.copy()
+            cookies = self.cookie_list[self.current_cookie_index]['cookies']
+            tokenv3 = self.cookie_list[self.current_cookie_index]['tokenV3']
+            headers = self.headers
             headers['AuthorizeV3'] = tokenv3
 
             response_opt = self.api_controller.request(
@@ -1182,7 +1079,7 @@ class RegularTaskFactory:
                 method="OPTIONS",
                 endpoint="/ns/shifts/analytics-back/api/v1/quota",
                 params={"officeID": office_id, "type": mode},
-                cookies=cookie_jar,
+                cookies=cookies,
                 headers=headers)
                             
             self.logger.debug("OPTIONS квоты отправлен office_id=%s mode=%s", office_id, mode)
@@ -1195,7 +1092,7 @@ class RegularTaskFactory:
                 method="GET",
                 endpoint="/ns/shifts/analytics-back/api/v1/quota",
                 params={"officeID": office_id, "type": mode},
-                cookies=cookie_jar,
+                cookies=cookies,
                 headers=headers)
             
             self.logger.debug("GET квоты получен office_id=%s mode=%s status=%s",
@@ -1225,27 +1122,7 @@ class RegularTaskFactory:
 
 """
 
-# class ProductSizeInfo(BaseModel):
-#     size_id: str
-#     transfer_qty: int
-#     transfer_qty_left_virtual: int
-#     transfer_qty_left_real:int
-#     is_archived: Optional[bool] = False
 
-# class ProductToTask(BaseModel):
-#     product_wb_id: int
-#     sizes: List[ProductSizeInfo]
-
-# class TaskWithProducts(BaseModel):
-#     task_id: int
-#     warehouses_from_ids: Optional[Any]  # JSON field: could be list[int], dict, etc.
-#     warehouses_to_ids: Optional[Any]
-#     task_status: Optional[int]
-#     is_archived: Optional[bool]
-#     task_creation_date: Optional[datetime]
-#     task_archiving_date: Optional[datetime]
-#     last_change_date: Optional[datetime]
-#     products: List[ProductToTask] = []
 
 
 
