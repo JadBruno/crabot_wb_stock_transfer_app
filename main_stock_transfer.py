@@ -63,14 +63,12 @@ def main():
         quota_dict = {office_id: {'src':1000000, 'dst':1000000} for office_id in office_id_list}
 
         try:
-                # if now.minute != 0 and now.second != 1:
-                #         next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=1)
-                #         wait_seconds = (next_hour - now).total_seconds()
-                #         wait_seconds += 5 # Добавляем 1 секунду для надежности
-                #         logger.info(f"Ждём до {next_hour.strftime('%H:%M:%S')} ({int(wait_seconds)} сек.)")
-                #         time.sleep(wait_seconds)
-                        
-                # quota_dict = asyncio.run(wb_api_data_fetcher.fetch_quota(office_id_list=office_id_list)) 
+                if now.minute != 0 and now.second != 1:
+                        next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=1)
+                        wait_seconds = (next_hour - now).total_seconds()
+                        wait_seconds += 5 # Добавляем 1 секунду для надежности
+                        logger.info(f"Ждём до {next_hour.strftime('%H:%M:%S')} ({int(wait_seconds)} сек.)")
+                        time.sleep(wait_seconds)
                 
                 regular_task_factory.quota_dict = quota_dict # Передали квоты в фабрику заданий
 
@@ -81,6 +79,7 @@ def main():
         except Exception as e:
                 logger.error(f"Ошибка в основном цикле: {e}")
         finally:
+                time.sleep(60) # Ждем минуту, чтобы сбросить все кулдауны, если есть
                 logger.debug('Запрашиваем квоты еще разок перед отключением скрипта')
                 quota_dict_unmocked = asyncio.run(wb_api_data_fetcher.fetch_quota(office_id_list=office_id_list)) 
                 mysql_controller.log_warehouse_state(quota_dict_unmocked) # Залогировали состояние складов по квотам
