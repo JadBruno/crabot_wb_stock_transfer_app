@@ -777,8 +777,12 @@ class RegularTaskFactory:
                             self.timeout_error_cooldown_index = (self.timeout_error_cooldown_index + 1) % len(self.timeout_error_request_cooldown_list)
                             continue
                         elif status_code not in (200,201,202,203,204):
+                            
                             self.logger.error("Полученный ответ от ВБ не соответсвует ожидание, отключаем скрипт")
                             sys.exit()
+                    else:
+                        self.bad_request_count = 0
+                        self.timeout_error_cooldown_index = 0
                     
                     self.logger.debug("Стоки для nmID=%s: %s", getattr(product, "product_wb_id", None), product_stocks)
 
