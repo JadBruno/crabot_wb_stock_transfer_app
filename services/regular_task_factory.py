@@ -861,7 +861,12 @@ class RegularTaskFactory:
                                 # response = MockResponse(200)  # Заглушка для теста
                                 # mock_true = True
                                 # if mock_true:
+                                    self.bad_request_count = 0
+                                    self.timeout_error_cooldown_index = 0
+                                    self.logger.info("Заявка успешно отправлена: src=%s -> dst=%s; nmID=%s",
+                                                    src_warehouse_id, dst_warehouse_id, getattr(product, "product_wb_id", None))
                                     for size in getattr(product, "sizes", []):
+                                        
                                         if size.size_id in warehouse_entries:
                                             quota_dict[src_warehouse_id]['src'] -= warehouse_entries[size.size_id]['count']
                                             quota_dict[dst_warehouse_id]['dst'] -= warehouse_entries[size.size_id]['count']
