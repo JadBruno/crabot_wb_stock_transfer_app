@@ -735,6 +735,8 @@ class RegularTaskFactory:
 
         # time.sleep(0.5) - Тут пауза не нужна. Она нужна, только если реально был послан запрос к WB. А многие запросы не посылаются из-за отсутствия квот. Кулдаун перенесен сразу после запроса к WB
 
+        products_on_the_way_array = []
+
         for task_idx, task in enumerate(tasks_to_process, start=1):
             self.logger.info("Обработка задания #%s", task_idx)
 
@@ -754,7 +756,7 @@ class RegularTaskFactory:
             # По каждому продукту в задании проводим итерацию
             for product_idx, product in enumerate(getattr(task, "products", []) , start=1):
             
-                products_on_the_way_array = []
+                
             
                 self.logger.info("Задание #%s: обработка продукта #%s (nmID=%s)", task_idx, product_idx, getattr(product, "product_wb_id", None))
                 
@@ -899,12 +901,12 @@ class RegularTaskFactory:
                             self.logger.exception("Ошибка при подготовке/отправке заявки src=%s dst=%s: %s",
                                                   src_warehouse_id, dst_warehouse_id, e)
 
-            try:
-                self.db_controller.insert_products_on_the_way(items=products_on_the_way_array)
-                # self.db_controller.update_transfer_qty_from_task(task)  # Тут в БД несем задания
-                self.logger.info("Задание #%s: обновлены количества трансферов в БД", task_idx)
-            except Exception as e:
-                self.logger.exception("Ошибка при обновлении задания #%s в БД: %s", task_idx, e)
+        try:
+            self.db_controller.insert_products_on_the_way(items=products_on_the_way_array)
+            # self.db_controller.update_transfer_qty_from_task(task)  # Тут в БД несем задания
+            self.logger.info("Задание #%s: обновлены количества трансферов в БД", task_idx)
+        except Exception as e:
+            self.logger.exception("Ошибка при обновлении задания #%s в БД: %s", task_idx, e)
 
         self.logger.info("Завершение обработки регулярного задания()")
 
@@ -928,7 +930,7 @@ class RegularTaskFactory:
         try:
             cookies = self.cookie_list[self.current_cookie_index]['cookies']
             tokenv3 = self.cookie_list[self.current_cookie_index]['tokenV3']
-            headers = self.headers
+            headers = self.headers.copy()
             headers['AuthorizeV3'] = tokenv3
             self.current_cookie_index = (self.current_cookie_index + 1) % len(self.cookie_list)
             
@@ -1045,7 +1047,7 @@ class RegularTaskFactory:
         try:
             cookies = self.cookie_list[self.current_cookie_index]['cookies']
             tokenv3 = self.cookie_list[self.current_cookie_index]['tokenV3']
-            headers = self.headers
+            headers = self.headers.copy()
             headers['AuthorizeV3'] = tokenv3
             self.current_cookie_index = (self.current_cookie_index + 1) % len(self.cookie_list) 
 
@@ -1070,7 +1072,7 @@ class RegularTaskFactory:
         try:
             cookies = self.cookie_list[self.current_cookie_index]['cookies']
             tokenv3 = self.cookie_list[self.current_cookie_index]['tokenV3']
-            headers = self.headers
+            headers = self.headers.copy()
             headers['AuthorizeV3'] = tokenv3
 
             response_opt = self.api_controller.request(
