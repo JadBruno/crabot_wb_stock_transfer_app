@@ -314,25 +314,48 @@ class MySQLController():
     @simple_logger(logger_name=__name__)
     def get_all_products_with_stocks_with_region(self):
 
-        sql = """WITH stock_with_max_time_end AS (
-                                                SELECT wb_article_id, warehouse_id, size_id, MAX(time_end) AS max_time_end
-                                                FROM mp_data.a_wb_catalog_stocks
-                                                GROUP BY wb_article_id, warehouse_id, size_id)
-                SELECT t.wb_article_id, t.warehouse_id, t.size_id, t.time_end, t.qty, awis.size, awstww.region_id 
-                FROM mp_data.a_wb_catalog_stocks t
-                INNER JOIN stock_with_max_time_end m
-                ON  t.wb_article_id = m.wb_article_id
-                AND t.warehouse_id = m.warehouse_id
-                AND t.size_id = m.size_id
-                AND t.time_end = m.max_time_end
-                LEFT JOIN mp_data.a_wb_izd_size awis ON awis.size_id = t.size_id
-                LEFT JOIN mp_data.a_wb_stock_transfer_wb_warehourses awstww ON awstww.wb_office_id  = t.warehouse_id;"""
+        warehouse_name_id_to_wb_office_id_map = self.get_warehouse_name_id_to_wb_office_id_map()
+
+        sql = """SELECT s.nmId as wb_article_id, 
+                        s.warehouseName_id as warehouse_id,
+                        s.techSize_id as size_id,
+                        s.time_end,
+                        s.quantity as qty,
+                        awis.`size`,
+                        wh.region_id  FROM mp_data.a_wb_stocks s
+                LEFT JOIN mp_data.a_wb_warehouseName wh ON s.warehouseName_id = wh.warehouse_id
+                LEFT JOIN mp_data.a_wb_izd_size awis ON awis.size_id = s.techSize_id
+                WHERE s.time_end >= (SELECT MAX(time_end) - INTERVAL 10 SECOND FROM mp_data.a_wb_catalog_stocks)
+                AND wh.region_id IS NOT NULL;"""
 
         try:
             result = self.db.execute_query(sql)
+
+            for entry in result:
+                wh_id = entry['warehouse_id']
+                if wh_id in warehouse_name_id_to_wb_office_id_map:
+                    entry['warehouse_id'] = warehouse_name_id_to_wb_office_id_map[wh_id]
+                    
             return result
         except Exception:
             return False
+        
+
+    @simple_logger(logger_name=__name__)
+    def get_warehouse_name_id_to_wb_office_id_map(self):
+        sql = """SELECT warehouse_id, warehouse_wb_id 
+                FROM mp_data.a_wb_warehouseName
+                WHERE warehouse_wb_id IS NOT NULL
+                AND warehouse_wb_id != 0;"""
+        try:
+            result = self.db.execute_query(sql)
+            result_dict = {}
+            for entry in result:
+                result_dict[entry['warehouse_id']] = entry['warehouse_wb_id']
+            return result_dict
+        except Exception:
+            return False
+    
         
     @simple_logger(logger_name=__name__)
     def get_products_transfers_on_the_way_with_region(self):
@@ -350,7 +373,9 @@ class MySQLController():
             LEFT JOIN mp_data.a_wb_stock_transfer_wb_warehourses awstww
                 ON awstww.wb_office_id = mp_data.a_wb_stock_transfer_products_on_the_way.warehouse_to_id
             LEFT JOIN mp_data.a_wb_stock_transfer_wb_warehourses awstwf
-                ON awstwf.wb_office_id = mp_data.a_wb_stock_transfer_products_on_the_way.warehouse_from_id;"""
+                ON awstwf.wb_office_id = mp_data.a_wb_stock_transfer_products_on_the_way.warehouse_from_id
+            WHERE is_finished != 1
+            AND created_at >= NOW() - INTERVAL 14 DAY;"""
         
         try:
             return self.db.execute_query(sql)

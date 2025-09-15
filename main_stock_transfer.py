@@ -60,16 +60,18 @@ def main():
 
         now = datetime.now()
 
+        quota_dict = {office_id: {'src':1000000, 'dst':1000000} for office_id in office_id_list}
+
         if not office_id_list:
                 logger.error("Не удалось получить список складов. Завершаем работу.")
                 return
 
         try:
-                if now.minute != 0 and now.second != 1:
-                        next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=1)
-                        wait_seconds = (next_hour - now).total_seconds()
-                        logger.info(f"Ждём до {next_hour.strftime('%H:%M:%S')} ({int(wait_seconds)} сек.)")
-                        time.sleep(wait_seconds)
+                # if now.minute != 0 and now.second != 1:
+                #         next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=1)
+                #         wait_seconds = (next_hour - now).total_seconds()
+                #         logger.info(f"Ждём до {next_hour.strftime('%H:%M:%S')} ({int(wait_seconds)} сек.)")
+                #         time.sleep(wait_seconds)
 
                 if datetime.now().hour == 9:
                         quota_dict = {office_id: {'src':1000000, 'dst':1000000} for office_id in office_id_list}

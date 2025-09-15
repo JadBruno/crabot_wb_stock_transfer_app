@@ -90,7 +90,7 @@ class DBDataFetcher:
 
     @simple_logger(logger_name=__name__)
     def fetch_all_product_entries_for_regular_tasks(self) -> tuple | None:
-        all_product_entries_for_regular_task = self.db_controller.get_stocks_for_regular_tasks()
+        all_product_entries_for_regular_task = self.db_controller.get_all_products_with_stocks_with_region()
         self.all_product_entries_for_regular_task = all_product_entries_for_regular_task
         return all_product_entries_for_regular_task
     
