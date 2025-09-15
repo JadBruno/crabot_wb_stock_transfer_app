@@ -165,14 +165,13 @@ class MySQLController():
     @simple_logger(logger_name=__name__)
     def get_max_stock_article(self) -> tuple[int, int] | None:
         try:
-            sql = """
-                SELECT wb_article_id, MAX(qty) AS max_qty
-                FROM mp_data.a_wb_catalog_stocks
-                WHERE time_beg > NOW() - INTERVAL 48 HOUR
-                GROUP BY wb_article_id
-                ORDER BY max_qty DESC
-                LIMIT 1;
-            """
+            sql = """SELECT nmid as wb_article_id, MAX(s.quantity) AS max_qty
+                    FROM mp_data.a_wb_stocks s
+                        WHERE s.time_end >= (SELECT MAX(time_end) - INTERVAL 10 SECOND FROM mp_data.a_wb_stocks)
+                        GROUP BY wb_article_id
+                        ORDER BY max_qty DESC
+                        LIMIT 1;"""
+            
             result = self.db.execute_query(sql)
 
             if result:
@@ -325,7 +324,7 @@ class MySQLController():
                         wh.region_id  FROM mp_data.a_wb_stocks s
                 LEFT JOIN mp_data.a_wb_warehouseName wh ON s.warehouseName_id = wh.warehouse_id
                 LEFT JOIN mp_data.a_wb_izd_size awis ON awis.size_id = s.techSize_id
-                WHERE s.time_end >= (SELECT MAX(time_end) - INTERVAL 10 SECOND FROM mp_data.a_wb_catalog_stocks)
+                WHERE s.time_end >= (SELECT MAX(time_end) - INTERVAL 10 SECOND FROM mp_data.a_wb_stocks)
                 AND wh.region_id IS NOT NULL;"""
 
         try:

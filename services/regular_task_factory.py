@@ -44,9 +44,10 @@ class RegularTaskFactory:
         self.timeout_error_request_cooldown_list = [1, 3, 10, 30, 60, 120]
         self.timeout_error_cooldown_index = 0
         self.send_transfer_request_cooldown = 0.1
+        self.all_request_bodies_to_send = []
 
     @simple_logger(logger_name=__name__)
-    def run(self):
+    def run_calculations(self):
             # карта размеров айди - тег
             if self.size_map is None:
                 self.size_map = self.db_data_fetcher.size_map
@@ -228,6 +229,22 @@ class RegularTaskFactory:
 
         warehouses_with_regions = {val: k for k, vals in warehouses_available_to_stock_transfer.items() for val in vals}
 
+        src_warehouses_with_quota_dict = defaultdict(int)
+        for wh_id in warehouse_src_sort_order:
+            src_warehouses_with_quota_dict[wh_id] = quota_dict.get(wh_id, {}).get('src', 0)
+        
+        dst_warehouses_with_quota_dict = defaultdict(int)
+        for wh_id in warehouse_dst_sort_order:
+            dst_warehouses_with_quota_dict[wh_id] = quota_dict.get(wh_id, {}).get('dst', 0)
+
+        src_quota_by_region = defaultdict(int)
+        for wh_id, region_id in warehouses_with_regions.items():
+            src_quota_by_region[region_id] += quota_dict.get(wh_id, {}).get('src', 0) or 0
+
+        dst_quota_by_region = defaultdict(int)
+        for wh_id, region_id in warehouses_with_regions.items():
+            dst_quota_by_region[region_id] += quota_dict.get(wh_id, {}).get('dst', 0) or 0
+
         for product in product_collection.values():
 
             current_tasks_for_product = []
@@ -286,8 +303,12 @@ class RegularTaskFactory:
                                                    and region_obj.amount_to_deliver > 0)
 
                         # Флаг по умолчанию: регион может принимать
-                        region_obj.can_receive = True
-                        region_obj.skip_reason = None
+                        if dst_quota_by_region.get(region_id, 0) > 0:
+                            region_obj.can_receive = True
+                            region_obj.skip_reason = None
+                        else:
+                            region_obj.can_receive = False
+                            region_obj.skip_reason = 'no_dst_quota'
 
                     # Распределение по регионам-получателям 
                     for dst_region_id in region_dst_sort_order:
@@ -295,10 +316,15 @@ class RegularTaskFactory:
                         if dst_region_id not in task_for_size.region_data:
                             continue
 
+                        # Пропускаем, если нет квот по приёму
+                        if dst_quota_by_region.get(dst_region_id, 0) <= 0:
+                            continue
+
                         # Доступные к приёмке склады для региона-получателя (с учётом порядка назначения)
-                        dst_wh_all = warehouses_available_to_stock_transfer.get(dst_region_id, []) or []
-                        dst_warehouses_for_region = [warehouse_id for warehouse_id in dst_wh_all
-                                                     if warehouse_id in warehouse_dst_sort_order]
+                        dst_warehouses_for_region = [wh_id for wh_id in dst_warehouses_with_quota_dict.keys() 
+                                                     if dst_warehouses_with_quota_dict[wh_id] > 0 and wh_id in 
+                                                     (warehouses_available_to_stock_transfer.get(dst_region_id, []) or []) and wh_id not in blocked_src_warehouses_for_sku]
+
 
                         dst_region_data_entry = task_for_size.region_data[dst_region_id]
                         amount_to_add = dst_region_data_entry.amount_to_deliver
@@ -316,6 +342,10 @@ class RegularTaskFactory:
                                 if src_region_id == dst_region_id:
                                     continue
 
+                                # Пропускаем, если нет квот по донору
+                                if src_quota_by_region.get(src_region_id, 0) <= 0:
+                                    continue
+
                                 if amount_to_add <= 0:
                                     break
 
@@ -330,9 +360,9 @@ class RegularTaskFactory:
                                 src_region_data_entry = task_for_size.region_data[src_region_id]
 
                                 # Список складов донора с известным приоритетом
-                                warehouse_for_region_list = [
-                                    warehouse_id for warehouse_id in (warehouses_available_to_stock_transfer.get(src_region_id, []) or [])
-                                    if warehouse_priority_dict.get(warehouse_id) is not None]
+                                warehouse_for_region_list = [warehouse_id for warehouse_id in src_warehouses_with_quota_dict.keys() 
+                                                             if src_warehouses_with_quota_dict[warehouse_id] > 0 and warehouse_id in (warehouses_available_to_stock_transfer.get(src_region_id, []) or []) and warehouse_id not in blocked_src_warehouses_for_sku]
+                                    
 
                                 # Проверка валидности донора (по дням наличия и заказам)
                                 has_valid_donor = False
@@ -771,13 +801,12 @@ class RegularTaskFactory:
                             self.bad_request_count += 1
                             self.logger.error("Ошибка %s при получении стоков nmID=%s. Пропускаем продукт.",
                                               status_code, getattr(product, "product_wb_id", None))
-                            cooldown_needed = self.timeout_error_request_cooldown_list[self.timeout_error_cooldown_index] * self.bad_request_count
+                            cooldown_needed = self.timeout_error_request_cooldown_list[self.timeout_error_cooldown_index]
                             self.logger.error("Ждём %s секунд перед следующей попыткой.", cooldown_needed)
                             time.sleep(cooldown_needed)
                             self.timeout_error_cooldown_index = (self.timeout_error_cooldown_index + 1) % len(self.timeout_error_request_cooldown_list)
                             continue
                         elif status_code not in (200,201,202,203,204):
-                            
                             self.logger.error("Полученный ответ от ВБ не соответсвует ожидание, отключаем скрипт")
                             sys.exit()
                     else:
@@ -851,73 +880,171 @@ class RegularTaskFactory:
                                 product=product,
                                 warehouse_entries=warehouse_entries)
 
-                            self.logger.info("Готово тело заявки для отправки: %s", warehouse_req_body)
-                            try:
-                                self.logger.debug(f"POST: {warehouse_req_body}")
-                                self.logger.debug("Отправка заявки: %s", warehouse_req_body)
+                            req_data_entry = {
+                                "src_warehouse_id": src_warehouse_id,
+                                "dst_warehouse_id": dst_warehouse_id,
+                                "product": product,
+                                "req_body": warehouse_req_body,
+                                "warehouse_entries": warehouse_entries}
 
-                                response = self.send_transfer_request(warehouse_req_body)
-                                time.sleep(self.send_transfer_request_cooldown)
-                                if response.status_code in [200, 201, 202, 204]:
-                                # class MockResponse:
-                                #     def __init__(self, status_code):
-                                #         self.status_code = status_code
-                                # response = MockResponse(200)  # Заглушка для теста
-                                # mock_true = True
-                                # if mock_true:
-                                    self.bad_request_count = 0
-                                    self.timeout_error_cooldown_index = 0
-                                    self.logger.info("Заявка успешно отправлена: src=%s -> dst=%s; nmID=%s",
-                                                    src_warehouse_id, dst_warehouse_id, getattr(product, "product_wb_id", None))
-                                    for size in getattr(product, "sizes", []):
-                                        
-                                        if size.size_id in warehouse_entries:
-                                            quota_dict[src_warehouse_id]['src'] -= warehouse_entries[size.size_id]['count']
-                                            quota_dict[dst_warehouse_id]['dst'] -= warehouse_entries[size.size_id]['count']
+                            self.all_request_bodies_to_send.append(req_data_entry)  # Сохраняем тело запроса в общий массив
 
-                                            product_on_the_way_entry = (product.product_wb_id, warehouse_entries[size.size_id]['count'], size_map[size.size_id], src_warehouse_id, dst_warehouse_id)
-                                            
-                                            products_on_the_way_array.append(product_on_the_way_entry)
-                                elif response.status_code in [429, 500, 502, 503, 504] and self.bad_request_count < self.bad_request_max_count:
-                                    self.logger.error("Ошибка %s при отправке заявки на трансфер nmID=%s. Пропускаем заявку.",
-                                                      response.status_code, getattr(product, "product_wb_id", None))
-                                    # При ошибках сервера и превышении лимитов делаем кулдаун и пробуем заново запросить квоты
-                                    cooldown_needed = self.timeout_error_request_cooldown_list[self.timeout_error_cooldown_index]
-                                    self.logger.debug(f"Делаем кулдаун {cooldown_needed} секунд перед следующим запросом")
-                                    time.sleep(cooldown_needed)
-                                    self.bad_request_count += 1
-                                    self.timeout_error_cooldown_index = (self.timeout_error_cooldown_index + 1) % len(self.timeout_error_request_cooldown_list)
-
-
-                                elif self.bad_request_count < self.bad_request_max_count and response.status_code in [400, 403]:
-                                    self.bad_request_count += 1
-                                    self.logger.error("Полученный ответ от ВБ не соответсвует ожиданию, попробуем перезапросить квоты")
-                                    mode = 'dst'
-                                    new_dst_quota = self.fetch_quota_for_single_warehouse(office_id=dst_warehouse_id, mode=mode)
-                                    quota_dict[dst_warehouse_id][mode] = new_dst_quota
-                                    mode = 'src'
-                                    new_src_quota = self.fetch_quota_for_single_warehouse(office_id=src_warehouse_id, mode=mode)
-                                    quota_dict[src_warehouse_id][mode] = new_src_quota
-                                else:
-                                    self.logger.error("Превышено количество запросов с кодом ошибки, отключаем скрипт")
-                                    sys.exit()
-
-                            except Exception as e:
-                                self.logger.debug(f"Ошибка при отправке запроса: {e}")
-                                self.logger.exception("Ошибка при отправке запроса: %s", e)
+                            self.logger.info("Заявка подготовлена для отправки: %s", req_data_entry)
 
                         except Exception as e:
                             self.logger.exception("Ошибка при подготовке/отправке заявки src=%s dst=%s: %s",
                                                   src_warehouse_id, dst_warehouse_id, e)
 
+
+    def send_all_requests(self, quota_dict, size_map):
+        products_on_the_way_array = []
+
+        for idx, req_data in enumerate(self.all_request_bodies_to_send, start=1):
+            try:
+                warehouse_req_body = req_data.get("req_body")
+                src_warehouse_id = req_data.get("src_warehouse_id")
+                dst_warehouse_id = req_data.get("dst_warehouse_id")
+                product = req_data.get("product")
+                warehouse_entries = req_data.get("warehouse_entries")
+                self.logger.info("Готово тело заявки для отправки: %s", warehouse_req_body)
+                try:
+                    self.logger.debug(f"POST: {warehouse_req_body}")
+                    self.logger.debug("Отправка заявки: %s", warehouse_req_body)
+
+                    response = self.send_transfer_request(warehouse_req_body)
+                    time.sleep(self.send_transfer_request_cooldown)
+                    if response.status_code in [200, 201, 202, 204]:
+                    # class MockResponse:
+                    #     def __init__(self, status_code):
+                    #         self.status_code = status_code
+                    # response = MockResponse(200)  # Заглушка для теста
+                    # mock_true = True
+                    # if mock_true:
+                        self.bad_request_count = 0
+                        self.timeout_error_cooldown_index = 0
+                        self.logger.info("Заявка успешно отправлена: src=%s -> dst=%s; nmID=%s",
+                                        src_warehouse_id, dst_warehouse_id, getattr(product, "product_wb_id", None))
+                        for size in getattr(product, "sizes", []):
+                            
+                            if size.size_id in warehouse_entries:
+                                quota_dict[src_warehouse_id]['src'] -= warehouse_entries[size.size_id]['count']
+                                quota_dict[dst_warehouse_id]['dst'] -= warehouse_entries[size.size_id]['count']
+
+                                product_on_the_way_entry = (product.product_wb_id, warehouse_entries[size.size_id]['count'], size_map[size.size_id], src_warehouse_id, dst_warehouse_id)
+                                
+                                products_on_the_way_array.append(product_on_the_way_entry)
+                    elif response.status_code in [429, 500, 502, 503, 504] and self.bad_request_count < self.bad_request_max_count:
+                        self.logger.error("Ошибка %s при отправке заявки на трансфер nmID=%s. Пропускаем заявку.",
+                                            response.status_code, getattr(product, "product_wb_id", None))
+                        # При ошибках сервера и превышении лимитов делаем кулдаун и пробуем заново запросить квоты
+                        cooldown_needed = self.timeout_error_request_cooldown_list[self.timeout_error_cooldown_index]
+                        self.logger.debug(f"Делаем кулдаун {cooldown_needed} секунд перед следующим запросом")
+                        time.sleep(cooldown_needed)
+                        self.bad_request_count += 1
+                        self.timeout_error_cooldown_index = (self.timeout_error_cooldown_index + 1) % len(self.timeout_error_request_cooldown_list)
+
+
+                    elif self.bad_request_count < self.bad_request_max_count and response.status_code in [400, 403]:
+                        self.bad_request_count += 1
+                        self.logger.error("Полученный ответ от ВБ не соответсвует ожиданию, попробуем перезапросить квоты")
+                        mode = 'dst'
+                        new_dst_quota = self.fetch_quota_for_single_warehouse(office_id=dst_warehouse_id, mode=mode)
+                        quota_dict[dst_warehouse_id][mode] = new_dst_quota
+                        mode = 'src'
+                        new_src_quota = self.fetch_quota_for_single_warehouse(office_id=src_warehouse_id, mode=mode)
+                        quota_dict[src_warehouse_id][mode] = new_src_quota
+                    else:
+                        self.logger.error("Превышено количество запросов с кодом ошибки, отключаем скрипт")
+                        sys.exit()
+
+                except Exception as e:
+                    self.logger.debug(f"Ошибка при отправке запроса: {e}")
+                    self.logger.exception("Ошибка при отправке запроса: %s", e)
+
+            except Exception as e:
+                self.logger.exception("Ошибка при подготовке/отправке заявки src=%s dst=%s: %s",
+                                        src_warehouse_id, dst_warehouse_id, e)
+
         try:
+            self.all_request_bodies_to_send.clear()  # Очищаем массив после отправки всех заявок
             self.db_controller.insert_products_on_the_way(items=products_on_the_way_array)
             # self.db_controller.update_transfer_qty_from_task(task)  # Тут в БД несем задания
-            self.logger.info("Задание #%s: обновлены количества трансферов в БД", task_idx)
+            self.logger.info("Регуларные задания: обновлены количества трансферов в БД")
         except Exception as e:
-            self.logger.exception("Ошибка при обновлении задания #%s в БД: %s", task_idx, e)
+            self.logger.exception("Ошибка при отправке регулярных заданий в БД: %s", e)
 
         self.logger.info("Завершение обработки регулярного задания()")
+
+        
+        
+
+        #                     self.logger.info("Готово тело заявки для отправки: %s", warehouse_req_body)
+        #                     try:
+        #                         self.logger.debug(f"POST: {warehouse_req_body}")
+        #                         self.logger.debug("Отправка заявки: %s", warehouse_req_body)
+
+        #                         # response = self.send_transfer_request(warehouse_req_body)
+        #                         # time.sleep(self.send_transfer_request_cooldown)
+        #                         # if response.status_code in [200, 201, 202, 204]:
+        #                         class MockResponse:
+        #                             def __init__(self, status_code):
+        #                                 self.status_code = status_code
+        #                         response = MockResponse(200)  # Заглушка для теста
+        #                         mock_true = True
+        #                         if mock_true:
+        #                             self.bad_request_count = 0
+        #                             self.timeout_error_cooldown_index = 0
+        #                             self.logger.info("Заявка успешно отправлена: src=%s -> dst=%s; nmID=%s",
+        #                                             src_warehouse_id, dst_warehouse_id, getattr(product, "product_wb_id", None))
+        #                             for size in getattr(product, "sizes", []):
+                                        
+        #                                 if size.size_id in warehouse_entries:
+        #                                     quota_dict[src_warehouse_id]['src'] -= warehouse_entries[size.size_id]['count']
+        #                                     quota_dict[dst_warehouse_id]['dst'] -= warehouse_entries[size.size_id]['count']
+
+        #                                     product_on_the_way_entry = (product.product_wb_id, warehouse_entries[size.size_id]['count'], size_map[size.size_id], src_warehouse_id, dst_warehouse_id)
+                                            
+        #                                     products_on_the_way_array.append(product_on_the_way_entry)
+        #                         elif response.status_code in [429, 500, 502, 503, 504] and self.bad_request_count < self.bad_request_max_count:
+        #                             self.logger.error("Ошибка %s при отправке заявки на трансфер nmID=%s. Пропускаем заявку.",
+        #                                               response.status_code, getattr(product, "product_wb_id", None))
+        #                             # При ошибках сервера и превышении лимитов делаем кулдаун и пробуем заново запросить квоты
+        #                             cooldown_needed = self.timeout_error_request_cooldown_list[self.timeout_error_cooldown_index]
+        #                             self.logger.debug(f"Делаем кулдаун {cooldown_needed} секунд перед следующим запросом")
+        #                             time.sleep(cooldown_needed)
+        #                             self.bad_request_count += 1
+        #                             self.timeout_error_cooldown_index = (self.timeout_error_cooldown_index + 1) % len(self.timeout_error_request_cooldown_list)
+
+
+        #                         elif self.bad_request_count < self.bad_request_max_count and response.status_code in [400, 403]:
+        #                             self.bad_request_count += 1
+        #                             self.logger.error("Полученный ответ от ВБ не соответсвует ожиданию, попробуем перезапросить квоты")
+        #                             mode = 'dst'
+        #                             new_dst_quota = self.fetch_quota_for_single_warehouse(office_id=dst_warehouse_id, mode=mode)
+        #                             quota_dict[dst_warehouse_id][mode] = new_dst_quota
+        #                             mode = 'src'
+        #                             new_src_quota = self.fetch_quota_for_single_warehouse(office_id=src_warehouse_id, mode=mode)
+        #                             quota_dict[src_warehouse_id][mode] = new_src_quota
+        #                         else:
+        #                             self.logger.error("Превышено количество запросов с кодом ошибки, отключаем скрипт")
+        #                             sys.exit()
+
+        #                     except Exception as e:
+        #                         self.logger.debug(f"Ошибка при отправке запроса: {e}")
+        #                         self.logger.exception("Ошибка при отправке запроса: %s", e)
+
+        #                 except Exception as e:
+        #                     self.logger.exception("Ошибка при подготовке/отправке заявки src=%s dst=%s: %s",
+        #                                           src_warehouse_id, dst_warehouse_id, e)
+
+        # try:
+        #     self.db_controller.insert_products_on_the_way(items=products_on_the_way_array)
+        #     # self.db_controller.update_transfer_qty_from_task(task)  # Тут в БД несем задания
+        #     self.logger.info("Задание #%s: обновлены количества трансферов в БД", task_idx)
+        # except Exception as e:
+        #     self.logger.exception("Ошибка при обновлении задания #%s в БД: %s", task_idx, e)
+
+        # self.logger.info("Завершение обработки регулярного задания()")
 
     @simple_logger(logger_name=__name__)
     def get_available_warehouses_by_quota(self, quota_dict: Dict[int, Dict[str, int]], task: TaskWithProducts) -> Tuple[List[int], List[int]]:

@@ -60,27 +60,29 @@ def main():
 
         now = datetime.now()
 
-        quota_dict = {office_id: {'src':1000000, 'dst':1000000} for office_id in office_id_list}
-
         if not office_id_list:
                 logger.error("Не удалось получить список складов. Завершаем работу.")
                 return
+        
+        quota_dict = {office_id: {'src':1000000, 'dst':1000000} for office_id in office_id_list}
 
         try:
-                # if now.minute != 0 and now.second != 1:
-                #         next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=1)
-                #         wait_seconds = (next_hour - now).total_seconds()
-                #         logger.info(f"Ждём до {next_hour.strftime('%H:%M:%S')} ({int(wait_seconds)} сек.)")
-                #         time.sleep(wait_seconds)
-
-                if datetime.now().hour == 9:
+                if datetime.now().hour == 8:
                         quota_dict = {office_id: {'src':1000000, 'dst':1000000} for office_id in office_id_list}
                 else:
                         quota_dict = asyncio.run(wb_api_data_fetcher.fetch_quota(office_id_list=office_id_list)) 
-                
+
                 regular_task_factory.quota_dict = quota_dict # Передали квоты в фабрику заданий
 
-                regular_task_factory.run() # Запуск обработки регулярных заданий
+                regular_task_factory.run_calculations() # Запуск рассчетов регулярных заданий
+
+                if now.minute != 0 and now.second != 1:
+                        next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=1)
+                        wait_seconds = (next_hour - now).total_seconds()
+                        logger.info(f"Ждём до {next_hour.strftime('%H:%M:%S')} ({int(wait_seconds)} сек.)")
+                        time.sleep(wait_seconds)
+                
+                regular_task_factory.send_all_requests(quota_dict=quota_dict, size_map=db_data_fetcher.size_map)
 
                 one_time_task_processor.process_one_time_tasks(quota_dict=quota_dict, 
                                                                 office_id_list=office_id_list) # Запуск обработки разовых заданий
