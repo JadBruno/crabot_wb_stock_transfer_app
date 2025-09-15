@@ -60,6 +60,10 @@ def main():
 
         now = datetime.now()
 
+        if not office_id_list:
+                logger.error("Не удалось получить список складов. Завершаем работу.")
+                return
+
         try:
                 if now.minute != 0 and now.second != 1:
                         next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=1)
