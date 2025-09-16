@@ -904,7 +904,7 @@ class RegularTaskFactory:
             try:
                 src_quota = quota_dict.get(req_data.get("src_warehouse_id"), {}).get('src', 0)
                 dst_quota = quota_dict.get(req_data.get("dst_warehouse_id"), {}).get('dst', 0)
-                if src_quota < 1 and dst_quota < 1:
+                if src_quota < 1 or dst_quota < 1:
                     self.logger.debug(f"Недостаточно квот на складах. src: {req_data.get('src_warehouse_id')} - {src_quota}; dst: {req_data.get('dst_warehouse_id')} - {dst_quota}. Пропуск.")
                     continue
 
@@ -918,15 +918,15 @@ class RegularTaskFactory:
                     self.logger.debug(f"POST: {warehouse_req_body}")
                     self.logger.debug("Отправка заявки: %s", warehouse_req_body)
 
-                    # response = self.send_transfer_request(warehouse_req_body)
-                    # time.sleep(self.send_transfer_request_cooldown)
-                    # if response.status_code in [200, 201, 202, 204]:
-                    class MockResponse:
-                        def __init__(self, status_code):
-                            self.status_code = status_code
-                    response = MockResponse(200)  # Заглушка для теста
-                    mock_true = True
-                    if mock_true:
+                    response = self.send_transfer_request(warehouse_req_body)
+                    time.sleep(self.send_transfer_request_cooldown)
+                    if response.status_code in [200, 201, 202, 204]:
+                    # class MockResponse:
+                    #     def __init__(self, status_code):
+                    #         self.status_code = status_code
+                    # response = MockResponse(200)  # Заглушка для теста
+                    # mock_true = True
+                    # if mock_true:
                         self.bad_request_count = 0
                         self.timeout_error_cooldown_index = 0
                         self.logger.info("Заявка успешно отправлена: src=%s -> dst=%s; nmID=%s",
