@@ -9,6 +9,7 @@ class RegionStock:
     attribute: str # атрибут для упрощение поиска целевых долей
     target_share: int = 0 # Целевая доля товара в регионе
     min_share: int = 0 # Минимальная доля товара в регионе
+    min_qty_fixed: int = 0
     warehouses: List[str] = field(default_factory=list) # Массив всех складов региона
     stock_by_warehouse: List[Dict[str, int]] = field(default_factory=list) # Cток по каждому из складов
 

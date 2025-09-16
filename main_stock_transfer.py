@@ -67,10 +67,10 @@ def main():
         quota_dict = {office_id: {'src':1000000, 'dst':1000000} for office_id in office_id_list}
 
         try:
-                if datetime.now().hour == 8:
-                        quota_dict = {office_id: {'src':1000000, 'dst':1000000} for office_id in office_id_list}
-                else:
-                        quota_dict = asyncio.run(wb_api_data_fetcher.fetch_quota(office_id_list=office_id_list)) 
+                # if datetime.now().hour == 8:
+                #         quota_dict = {office_id: {'src':1000000, 'dst':1000000} for office_id in office_id_list}
+                # else:
+                #         quota_dict = asyncio.run(wb_api_data_fetcher.fetch_quota(office_id_list=office_id_list)) 
 
                 regular_task_factory.quota_dict = quota_dict # Передали квоты в фабрику заданий
 

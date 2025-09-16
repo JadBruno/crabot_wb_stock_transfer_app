@@ -296,8 +296,9 @@ class RegularTaskFactory:
 
                         region_obj.min_stock_by_region = math.floor(task_for_size.total_stock_for_product * region_obj.min_share)
 
+                        region_obj.min_qty_fixed = task_row.get(f"min_qty_to_transfer_{region_obj.attribute}", 0) or 0
                         # Сколько нужно довезти до цели
-                        region_obj.amount_to_deliver = math.floor(max(0, region_obj.target_stock_by_region - region_obj.stock_by_region_before))
+                        region_obj.amount_to_deliver = math.floor(max(0, region_obj.target_stock_by_region - region_obj.stock_by_region_before, region_obj.min_qty_fixed))
 
                         region_obj.is_below_min = (region_obj.stock_by_region_before < region_obj.min_stock_by_region
                                                    and region_obj.amount_to_deliver > 0)
@@ -901,6 +902,12 @@ class RegularTaskFactory:
 
         for idx, req_data in enumerate(self.all_request_bodies_to_send, start=1):
             try:
+                src_quota = quota_dict.get(req_data.get("src_warehouse_id"), {}).get('src', 0)
+                dst_quota = quota_dict.get(req_data.get("dst_warehouse_id"), {}).get('dst', 0)
+                if src_quota < 1 and dst_quota < 1:
+                    self.logger.debug(f"Недостаточно квот на складах. src: {req_data.get('src_warehouse_id')} - {src_quota}; dst: {req_data.get('dst_warehouse_id')} - {dst_quota}. Пропуск.")
+                    continue
+
                 warehouse_req_body = req_data.get("req_body")
                 src_warehouse_id = req_data.get("src_warehouse_id")
                 dst_warehouse_id = req_data.get("dst_warehouse_id")
@@ -911,15 +918,15 @@ class RegularTaskFactory:
                     self.logger.debug(f"POST: {warehouse_req_body}")
                     self.logger.debug("Отправка заявки: %s", warehouse_req_body)
 
-                    response = self.send_transfer_request(warehouse_req_body)
-                    time.sleep(self.send_transfer_request_cooldown)
-                    if response.status_code in [200, 201, 202, 204]:
-                    # class MockResponse:
-                    #     def __init__(self, status_code):
-                    #         self.status_code = status_code
-                    # response = MockResponse(200)  # Заглушка для теста
-                    # mock_true = True
-                    # if mock_true:
+                    # response = self.send_transfer_request(warehouse_req_body)
+                    # time.sleep(self.send_transfer_request_cooldown)
+                    # if response.status_code in [200, 201, 202, 204]:
+                    class MockResponse:
+                        def __init__(self, status_code):
+                            self.status_code = status_code
+                    response = MockResponse(200)  # Заглушка для теста
+                    mock_true = True
+                    if mock_true:
                         self.bad_request_count = 0
                         self.timeout_error_cooldown_index = 0
                         self.logger.info("Заявка успешно отправлена: src=%s -> dst=%s; nmID=%s",
