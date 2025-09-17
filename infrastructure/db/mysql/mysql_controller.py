@@ -381,125 +381,125 @@ class MySQLController():
         except Exception:
             return False
         
-    @simple_logger(logger_name=__name__)
-    def get_current_regular_task(self):
-
-        sql = """
-            SELECT
-                task_id,
-                target_central,
-                target_north_west,
-                target_volga,
-                target_south,
-                target_urals,
-                target_siberia,
-                target_north_caucasus,
-                target_far_east,
-                min_central,
-                min_north_west,
-                min_volga,
-                min_south,
-                min_urals,
-                min_siberia,
-                min_north_caucasus,
-                min_far_east,
-                is_archived,
-                task_creation_date,
-                task_archiving_date,
-                last_change_date
-            FROM mp_data.a_wb_stock_transfer_regular_tasks
-            WHERE is_archived = 0
-            ORDER BY task_creation_date DESC
-            LIMIT 1;"""
-        try:
-            result = self.db.execute_query(sql)
-            if not result:
-                return None
-            return result[0]  
-        except Exception:
-            return None
-        
     # @simple_logger(logger_name=__name__)
     # def get_current_regular_task(self):
-    #     """
-    #     Возвращает актуальную задачу в старом формате из новых таблиц,
-    #     включая новый параметр min_qty_to_transfer для каждого региона.
-    #     """
 
-    #     sql = """SELECT 
-    #                 t.task_id,
-    #                 r.region_id,
-    #                 r.target_share,
-    #                 r.min_share,
-    #                 r.min_qty_to_transfer,
-    #                 t.is_archived,
-    #                 t.created_at AS task_creation_date,
-    #                 t.archived_at AS task_archiving_date
-    #         FROM mp_data.a_wb_stock_transfer_regular_tasks_new t
-    #         JOIN (
-    #             SELECT MAX(task_id) AS task_id
-    #             FROM mp_data.a_wb_stock_transfer_regular_tasks_new
-    #             WHERE is_archived = 0
-    #         ) lt ON t.task_id = lt.task_id
-    #         LEFT JOIN mp_data.a_wb_stock_transfer_regular_task_region_shares r
-    #             ON r.task_id = r.task_id
-    #         WHERE t.is_archived = 0
-    #         AND t.task_id = lt.task_id;
-    #     """
-
+    #     sql = """
+    #         SELECT
+    #             task_id,
+    #             target_central,
+    #             target_north_west,
+    #             target_volga,
+    #             target_south,
+    #             target_urals,
+    #             target_siberia,
+    #             target_north_caucasus,
+    #             target_far_east,
+    #             min_central,
+    #             min_north_west,
+    #             min_volga,
+    #             min_south,
+    #             min_urals,
+    #             min_siberia,
+    #             min_north_caucasus,
+    #             min_far_east,
+    #             is_archived,
+    #             task_creation_date,
+    #             task_archiving_date,
+    #             last_change_date
+    #         FROM mp_data.a_wb_stock_transfer_regular_tasks
+    #         WHERE is_archived = 0
+    #         ORDER BY task_creation_date DESC
+    #         LIMIT 1;"""
     #     try:
     #         result = self.db.execute_query(sql)
     #         if not result:
     #             return None
-
-    #         task_info = {
-    #             "task_id": result[0]["task_id"],
-    #             "target_central": None,
-    #             "target_north_west": None,
-    #             "target_volga": None,
-    #             "target_south": None,
-    #             "target_urals": None,
-    #             "target_siberia": None,
-    #             "min_central": None,
-    #             "min_north_west": None,
-    #             "min_volga": None,
-    #             "min_south": None,
-    #             "min_urals": None,
-    #             "min_siberia": None,
-    #             "min_qty_to_transfer_central": None,
-    #             "min_qty_to_transfer_north_west": None,
-    #             "min_qty_to_transfer_volga": None,
-    #             "min_qty_to_transfer_south": None,
-    #             "min_qty_to_transfer_urals": None,
-    #             "min_qty_to_transfer_siberia": None,
-    #             "is_archived": result[0]["is_archived"],
-    #             "task_creation_date": result[0]["task_creation_date"],
-    #             "task_archiving_date": result[0]["task_archiving_date"],
-    #             "last_change_date": result[0]["task_creation_date"],
-    #         }
-
-    #         region_map = {
-    #             1: "siberia",
-    #             2: "south",
-    #             3: "central",
-    #             5: "north_west",
-    #             7: "urals",
-    #             8: "volga",
-    #         }
-
-    #         for row in result:
-    #             region = region_map.get(row["region_id"])
-    #             if not region:
-    #                 continue
-
-    #             task_info[f"target_{region}"] = row["target_share"]
-    #             task_info[f"min_{region}"] = row["min_share"]
-    #             task_info[f"min_qty_to_transfer_{region}"] = row["min_qty_to_transfer"]
-
-    #         return task_info
-
+    #         return result[0]  
     #     except Exception:
     #         return None
+        
+    @simple_logger(logger_name=__name__)
+    def get_current_regular_task(self):
+        """
+        Возвращает актуальную задачу в старом формате из новых таблиц,
+        включая новый параметр min_qty_to_transfer для каждого региона.
+        """
+
+        sql = """SELECT 
+                    t.task_id,
+                    r.region_id,
+                    r.target_share,
+                    r.min_share,
+                    r.min_qty_to_transfer,
+                    t.is_archived,
+                    t.created_at AS task_creation_date,
+                    t.archived_at AS task_archiving_date
+            FROM mp_data.a_wb_stock_transfer_regular_tasks_new t
+            JOIN (
+                SELECT MAX(task_id) AS task_id
+                FROM mp_data.a_wb_stock_transfer_regular_tasks_new
+                WHERE is_archived = 0
+            ) lt ON t.task_id = lt.task_id
+            LEFT JOIN mp_data.a_wb_stock_transfer_regular_task_region_shares r
+                ON r.task_id = r.task_id
+            WHERE t.is_archived = 0
+            AND t.task_id = lt.task_id;
+        """
+
+        try:
+            result = self.db.execute_query(sql)
+            if not result:
+                return None
+
+            task_info = {
+                "task_id": result[0]["task_id"],
+                "target_central": None,
+                "target_north_west": None,
+                "target_volga": None,
+                "target_south": None,
+                "target_urals": None,
+                "target_siberia": None,
+                "min_central": None,
+                "min_north_west": None,
+                "min_volga": None,
+                "min_south": None,
+                "min_urals": None,
+                "min_siberia": None,
+                "min_qty_to_transfer_central": None,
+                "min_qty_to_transfer_north_west": None,
+                "min_qty_to_transfer_volga": None,
+                "min_qty_to_transfer_south": None,
+                "min_qty_to_transfer_urals": None,
+                "min_qty_to_transfer_siberia": None,
+                "is_archived": result[0]["is_archived"],
+                "task_creation_date": result[0]["task_creation_date"],
+                "task_archiving_date": result[0]["task_archiving_date"],
+                "last_change_date": result[0]["task_creation_date"],
+            }
+
+            region_map = {
+                1: "siberia",
+                2: "south",
+                3: "central",
+                5: "north_west",
+                7: "urals",
+                8: "volga",
+            }
+
+            for row in result:
+                region = region_map.get(row["region_id"])
+                if not region:
+                    continue
+
+                task_info[f"target_{region}"] = row["target_share"]
+                task_info[f"min_{region}"] = row["min_share"]
+                task_info[f"min_qty_to_transfer_{region}"] = row["min_qty_to_transfer"]
+
+            return task_info
+
+        except Exception:
+            return None
 
 
 
