@@ -300,7 +300,7 @@ class RegularTaskFactory:
                         # Сколько нужно довезти до цели
                         region_obj.amount_to_deliver = math.floor(max(0, region_obj.target_stock_by_region - region_obj.stock_by_region_before, region_obj.min_qty_fixed))
 
-                        region_obj.is_below_min = (region_obj.stock_by_region_before <= region_obj.min_stock_by_region
+                        region_obj.is_below_min = (region_obj.stock_by_region_before < region_obj.min_stock_by_region
                                                    and region_obj.amount_to_deliver > 0)
 
                         # Флаг по умолчанию: регион может принимать
