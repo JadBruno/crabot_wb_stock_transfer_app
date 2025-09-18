@@ -758,11 +758,11 @@ class RegularTaskFactory:
                 tasks_to_process.append(new_task)
 
         if tasks_to_process:
-            self.send_stock_transfer_request(tasks_to_process=tasks_to_process, quota_dict=quota_dict, size_map=size_map)
+            self.create_stock_transfer_request(tasks_to_process=tasks_to_process, quota_dict=quota_dict, size_map=size_map)
 
 
     @simple_logger(logger_name=__name__)
-    def send_stock_transfer_request(self, tasks_to_process, quota_dict, size_map):
+    def create_stock_transfer_request(self, tasks_to_process, quota_dict, size_map):
 
         # time.sleep(0.5) - Тут пауза не нужна. Она нужна, только если реально был послан запрос к WB. А многие запросы не посылаются из-за отсутствия квот. Кулдаун перенесен сразу после запроса к WB
 
@@ -961,8 +961,8 @@ class RegularTaskFactory:
                         new_src_quota = self.fetch_quota_for_single_warehouse(office_id=src_warehouse_id, mode=mode)
                         quota_dict[src_warehouse_id][mode] = new_src_quota
                     else:
-                        self.logger.error("Превышено количество запросов с кодом ошибки, отключаем скрипт")
-                        sys.exit()
+                        self.logger.error("Превышено количество запросов с кодом ошибки, перестаем отправлять заявки")
+                        break
 
                 except Exception as e:
                     self.logger.debug(f"Ошибка при отправке запроса: {e}")
