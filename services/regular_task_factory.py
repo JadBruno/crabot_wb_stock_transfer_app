@@ -58,6 +58,8 @@ class RegularTaskFactory:
             # словари приоритетов в регионах
             region_priority_dict = self.db_data_fetcher.region_priority_dict
 
+            region_src_sort_order = {k: v['src_priority'] for k, v in region_priority_dict.items() if v.get('src_priority', None) is not None}
+
             warehouse_priority_dict = self.db_data_fetcher.warehouse_priority_dict
 
             warehouses_available_to_stock_transfer = self.db_data_fetcher.warehouses_available_to_stock_transfer
@@ -81,6 +83,7 @@ class RegularTaskFactory:
             # юху
             product_collection = self.create_product_collection_with_regions(all_product_entries=all_product_entries,
                                                                                 warehouses_available_to_stock_transfer=warehouses_available_to_stock_transfer,
+                                                                                region_src_sort_order=region_src_sort_order,
                                                                                 availability_index=stock_availability_df,
                                                                                 orders_index=orders_index)
             # добавил продукты в пути
@@ -477,6 +480,7 @@ class RegularTaskFactory:
     @simple_logger(logger_name=__name__)
     def create_product_collection_with_regions(self, all_product_entries: Iterable[Row],
                                                warehouses_available_to_stock_transfer: Dict,
+                                               region_src_sort_order: Dict,
                                                availability_index: Optional[Dict[Tuple[int, int, int], Dict[str, Any]]] = None,
                                                orders_index: Optional[Dict[Tuple[int, int, int], int]] = None) -> Dict[int, Dict[str, Any]]:
         
@@ -581,7 +585,19 @@ class RegularTaskFactory:
 
                     size['orders_by_region'][region['region_id']] = total_orders_for_region
 
+        for product in products.values():
+            for size in product['sizes'].values():
+                sorted_regions = self.sort_regions(size.get('regions', {}), region_src_sort_order)
+                size['regions'] = sorted_regions
+
+
         return products
+
+    def sort_regions(self, regions: dict, sort_order: dict) -> dict:
+        # Сортируем регионы по приоритету, отсутствующие в sort_order идут в конец
+        sorted_regions = dict(sorted(regions.items(),
+                                     key=lambda item: sort_order.get(item[0], float("inf"))))
+        return sorted_regions
 
     @simple_logger(logger_name=__name__)
     def fill_empty_regions_for_products_in_product_collection(self, products, warehouses_available_to_stock_transfer):
