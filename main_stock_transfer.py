@@ -28,8 +28,10 @@ def main():
         wb_api_data_fetcher = WBAPIDataFetcher(api_controller=api_controller,
                                      mysql_controller=mysql_controller,
                                      cookie_list=cookie_list,
+                                     wb_content_api_key=wb_analytics_api_key,
                                      headers=authorized_headers,
                                      logger=logger)
+        
 
         delivered_supply_processor = DeliveredSupplyProcessor(db_controller=mysql_controller,
                                                              api_controller=api_controller,
@@ -80,7 +82,7 @@ def main():
                         next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=1)
                         wait_seconds = (next_hour - now).total_seconds()
                         logger.info(f"Ждём до {next_hour.strftime('%H:%M:%S')} ({int(wait_seconds)} сек.)")
-                        time.sleep(wait_seconds)
+                        # time.sleep(wait_seconds)
                 
                 regular_task_factory.send_all_requests(quota_dict=quota_dict, size_map=db_data_fetcher.size_map)
 

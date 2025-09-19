@@ -1,18 +1,21 @@
 import asyncio
 import aiohttp
 import time
-
+from infrastructure.api.sync_controller import SyncAPIController
+from infrastructure.db.mysql.mysql_controller import MySQLController
 
 class WBAPIDataFetcher:
-    def __init__(self, api_controller,
-                 mysql_controller,
+    def __init__(self, api_controller: SyncAPIController,
+                 mysql_controller: MySQLController,
                  cookie_list,
+                 wb_content_api_key,
                  headers,
                  logger,
                  cooldown: float = 0.5):
         self.api_controller = api_controller
         self.mysql_controller = mysql_controller
         self.cookie_list = cookie_list
+        self.wb_content_api_key = wb_content_api_key
         self.headers = headers
         self.logger = logger
         self.quota_dict = None
@@ -159,3 +162,126 @@ class WBAPIDataFetcher:
         except Exception as e:
             self.logger.exception("Ошибка в fetch_warehouse_list: %s", e)
             return None
+        
+
+
+    def fetch_all_chrtID(self) -> dict | None:
+        
+        chrtid_by_techsize_dict = {}
+
+        req_attempts = 0
+
+        api_key = self.wb_content_api_key['API key']
+
+        headers = {'Authorization': api_key,
+                        'Content-Type': 'application/json'}
+
+        response_card_limit = 100
+        
+        request_cursor = {'limit':response_card_limit}
+
+        try:
+
+            while req_attempts <= 1000:
+
+            
+                    req_body = {"settings": {"filter": {"withPhoto": -1},
+                                            "cursor": request_cursor}}
+
+
+                    response = self.api_controller.request(
+                        base_url="https://content-api.wildberries.ru",
+                        method="POST",
+                        endpoint="/content/v2/get/cards/list",
+                        json=req_body,
+                        headers=headers)
+                    
+                    self.logger.debug("Ответ получен: status=%s", getattr(response, "status_code", None))
+
+                    response_json = response.json()
+                    cards = response_json.get("cards", [])
+                    for card in cards:
+                        sizes = card.get("sizes", [])
+                        for size in sizes:
+                            tech_size = size.get("techSize", None)
+                            chrt_id = size.get("chrtID", None)
+                            if tech_size and chrt_id and tech_size not in chrtid_by_techsize_dict:
+                                chrtid_by_techsize_dict[tech_size] = chrt_id
+                    
+                    response_cursor = response_json.get("cursor", {})
+                    response_total = response_cursor.get("total", 0)
+                    last_item_id = response_cursor.get("nmID", None)
+
+                    if response_total < response_card_limit or not last_item_id or response_total == 0:
+                        self.logger.info("Все chrtID получены. Всего: %s", len(chrtid_by_techsize_dict))
+                        break
+
+                    request_cursor['limit'] = response_total
+                    request_cursor['nmID'] = last_item_id
+
+                    req_attempts += 1
+
+            return chrtid_by_techsize_dict
+
+        except Exception as e:
+            self.logger.exception("Ошибка в fetch_warehouse_list: %s", e)
+            return None
+        
+
+
+
+    def fetch_chrtids_for_nmId_list(self, nmId_list) -> dict | None:
+        
+        chrtid_entries = []
+
+        req_attempts = 0
+
+        api_key = self.wb_content_api_key['API key']
+
+        headers = {'Authorization': api_key,
+                        'Content-Type': 'application/json'}
+
+        response_card_limit = 1
+        
+        request_cursor = {'limit':response_card_limit}
+
+        for nm_id in nmId_list:
+
+            try:
+
+                
+                req_body = {"settings": {"filter": {"withPhoto": -1,
+                                                    "nmID": nm_id},
+                                        "cursor": request_cursor}}
+
+
+                response = self.api_controller.request(
+                    base_url="https://content-api.wildberries.ru",
+                    method="POST",
+                    endpoint="/content/v2/get/cards/list",
+                    json=req_body,
+                    headers=headers)
+                
+                self.logger.debug("Ответ получен: status=%s", getattr(response, "status_code", None))
+
+                response_json = response.json()
+                cards = response_json.get("cards", [])
+                for card in cards:
+                    sizes = card.get("sizes", [])
+                    for size in sizes:
+                        tech_size = size.get("techSize", None)
+                        chrt_id = size.get("chrtID", None)
+                        nmID = card.get("nmID", None)
+                        if tech_size and chrt_id and nmID:
+                            chrt_ir_entry = {'nmID': nmID,
+                                            'techSize': tech_size,
+                                            'chrtID': chrt_id}
+                            chrtid_entries.append(chrt_ir_entry)
+
+            except Exception as e:
+                self.logger.exception("Ошибка в fetch_warehouse_list: %s", e)
+                return None
+
+        return chrtid_entries
+
+        

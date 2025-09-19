@@ -1,5 +1,5 @@
 from infrastructure.db.mysql.mysql_controller import MySQLController
-
+from collections import defaultdict
 from utils.logger import simple_logger, get_logger
 
 
@@ -20,8 +20,10 @@ class DBDataFetcher:
         self.regular_task_row = None
         self.all_product_entries_for_regular_task = None
         self.product_on_the_way_for_regular_task = None
+        self.banned_warehouses_for_nmids = None
         self.all_wb_offices_with_regions_dict = None
         self.all_wb_regions_with_office_list_dict = None
+        self.techsize_with_chrtid_dict = None
 
         # Забираем все данные
         self.fetch_max_stock_nmId()
@@ -34,6 +36,7 @@ class DBDataFetcher:
         self.fetch_blocked_warehouses_for_skus()
         self.fetch_product_on_the_way_for_regular_task()
         self.fetch_all_wb_offices_with_regions_dict()
+        self.fetch_techsize_with_chrtid_dict()
 
     @simple_logger(logger_name=__name__)
     def fetch_max_stock_nmId(self) -> int | None:
@@ -110,8 +113,28 @@ class DBDataFetcher:
     @simple_logger(logger_name=__name__)
     def fetch_product_on_the_way_for_regular_task(self) -> tuple | None:
         product_on_the_way_for_regular_task = self.db_controller.get_products_transfers_on_the_way_with_region()
+        self.create_wh_banned_for_nmid_list(product_on_the_way_for_regular_task)
         self.product_on_the_way_for_regular_task = product_on_the_way_for_regular_task
+
         return product_on_the_way_for_regular_task
+    
+    @simple_logger(logger_name=__name__)
+    def create_wh_banned_for_nmid_list(self, product_on_the_way_for_regular_task) -> dict | None:
+        banned_warehouses_for_nmids = defaultdict(list)
+        for entry in product_on_the_way_for_regular_task:
+            nmId = entry['wb_article_id']
+            wh_from = entry['warehouse_from_id']
+            if wh_from not in banned_warehouses_for_nmids[nmId]:
+                banned_warehouses_for_nmids[nmId].append(wh_from)
+        self.banned_warehouses_for_nmids = banned_warehouses_for_nmids
+        return banned_warehouses_for_nmids
+
+    @simple_logger(logger_name=__name__)
+    def fetch_techsize_with_chrtid_dict(self) -> dict | None: 
+        techsize_with_chrtid_dict = self.db_controller.get_all_techsizes_with_chrtid()
+        self.techsize_with_chrtid_dict = techsize_with_chrtid_dict
+        return techsize_with_chrtid_dict
+
 
     @simple_logger(logger_name=__name__)
     def fetch_all_wb_offices_with_regions_dict(self) -> dict | None:

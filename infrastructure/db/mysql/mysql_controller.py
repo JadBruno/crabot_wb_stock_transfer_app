@@ -670,7 +670,6 @@ class MySQLController():
             return False
         
 
-
     @simple_logger(logger_name=__name__)
     def get_blocked_warehouses_for_skus(self):
         sql = """SELECT * FROM mp_data.a_wb_stock_transfer_products_on_the_way 
@@ -762,5 +761,49 @@ class MySQLController():
                 
             return result_dict
         except Exception:
+            return False
+        
+
+
+    @simple_logger(logger_name=__name__)
+    def get_all_techsizes_with_chrtid(self):
+        sql = """SELECT * FROM mp_data.a_wb_stock_transfer_techsize_with_chrt_id"""
+        try:
+            result = self.db.execute_query(sql)
+            result_dict = {}
+            for entry in result:
+
+                nm_id = entry.get('nmId')
+                tech_size = entry.get('techsize')
+                chrt_id = entry.get('chrt_id')
+
+                if nm_id is None or tech_size is None or chrt_id is None:
+                    continue
+
+                if nm_id not in result_dict:
+                    result_dict[nm_id] = {}
+
+                result_dict[nm_id][tech_size] = chrt_id
+
+            return result_dict
+        except Exception:
+            return False
+        
+
+
+    @simple_logger(logger_name=__name__)
+    def insert_chrtid_with_techsize(self, chrtid_entries: list) -> bool:
+        
+        values = [(entry['techSize'], entry['chrtID'], entry['nmID']) for entry in chrtid_entries]
+        query = """INSERT INTO mp_data.a_wb_stock_transfer_techsize_with_chrt_id (techsize, chrt_id, nmID) VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE chrt_id = VALUES(chrt_id);"""
+        
+        try:
+
+            self.db.execute_many(query, values)
+
+            return True
+
+        except Exception as e:
             return False
 

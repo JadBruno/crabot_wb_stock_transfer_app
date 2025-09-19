@@ -45,6 +45,7 @@ class RegularTaskFactory:
         self.timeout_error_cooldown_index = 0
         self.send_transfer_request_cooldown = 0.1
         self.all_request_bodies_to_send = []
+        self.products_with_missing_chrtids = []
 
     @simple_logger(logger_name=__name__)
     def run_calculations(self):
@@ -251,8 +252,14 @@ class RegularTaskFactory:
             source_warehouses_available_for_nmId = warehouse_src_sort_order.copy()
             source_warehouse_used_in_transfer = []
 
+            product_stocks_by_size_with_warehouse = {}
+
             try:
                 for size_id, size_data in product.get("sizes", {}).items():
+
+                    tech_size_id = size_data.get("size_name")
+
+                    # product_stocks_by_size_with_warehouse[tech_size_id] = defaultdict(dict)
 
                     block_warehouses_for_sku_index = f"{product.get('wb_article_id')}_{size_id}"
                     blocked_src_warehouses_for_sku = blocked_warehouses_for_skus.get(block_warehouses_for_sku_index, [])
@@ -300,7 +307,7 @@ class RegularTaskFactory:
                         # Сколько нужно довезти до цели
                         region_obj.amount_to_deliver = math.floor(max(0, region_obj.target_stock_by_region - region_obj.stock_by_region_before, region_obj.min_qty_fixed))
 
-                        region_obj.is_below_min = (region_obj.stock_by_region_before < region_obj.min_stock_by_region
+                        region_obj.is_below_min = (region_obj.stock_by_region_before <= region_obj.min_stock_by_region
                                                    and region_obj.amount_to_deliver > 0)
 
                         # Флаг по умолчанию: регион может принимать
@@ -359,6 +366,15 @@ class RegularTaskFactory:
                                     continue
 
                                 src_region_data_entry = task_for_size.region_data[src_region_id]
+
+                                for wh_stock in src_region_data_entry.stock_by_warehouse:
+                                    for wh_id, qty in wh_stock.items():
+                                        if wh_id not in product_stocks_by_size_with_warehouse:
+                                            product_stocks_by_size_with_warehouse[wh_id] = defaultdict(dict)
+
+                                        if qty and wh_id in current_src_entry_warehouse_sort:
+                                            product_stocks_by_size_with_warehouse[wh_id][tech_size_id] = qty
+
 
                                 # Список складов донора с известным приоритетом
                                 warehouse_for_region_list = [warehouse_id for warehouse_id in src_warehouses_with_quota_dict.keys() 
@@ -452,7 +468,8 @@ class RegularTaskFactory:
                     quota_dict=quota_dict,
                     warehouse_src_sort_order=warehouse_src_sort_order,
                     warehouse_dst_sort_order=warehouse_dst_sort_order,
-                    size_map=size_map)
+                    size_map=size_map,
+                    product_stocks_by_size_with_warehouse=product_stocks_by_size_with_warehouse)
 
         return None
 
@@ -697,7 +714,9 @@ class RegularTaskFactory:
                                                warehouses_available_to_stock_transfer, 
                                                warehouse_src_sort_order,
                                                warehouse_dst_sort_order,
-                                               quota_dict, size_map):
+                                               quota_dict, 
+                                               size_map,
+                                               product_stocks_by_size_with_warehouse):
 
         tasks_to_process = []
         
@@ -758,11 +777,11 @@ class RegularTaskFactory:
                 tasks_to_process.append(new_task)
 
         if tasks_to_process:
-            self.create_stock_transfer_request(tasks_to_process=tasks_to_process, quota_dict=quota_dict, size_map=size_map)
+            self.create_stock_transfer_request(tasks_to_process=tasks_to_process, quota_dict=quota_dict, size_map=size_map, product_stocks_by_size_with_warehouse=product_stocks_by_size_with_warehouse)
 
 
     @simple_logger(logger_name=__name__)
-    def create_stock_transfer_request(self, tasks_to_process, quota_dict, size_map):
+    def create_stock_transfer_request(self, tasks_to_process, quota_dict, size_map, product_stocks_by_size_with_warehouse):
 
         # time.sleep(0.5) - Тут пауза не нужна. Она нужна, только если реально был послан запрос к WB. А многие запросы не посылаются из-за отсутствия квот. Кулдаун перенесен сразу после запроса к WB
 
@@ -786,39 +805,84 @@ class RegularTaskFactory:
 
             # По каждому продукту в задании проводим итерацию
             for product_idx, product in enumerate(getattr(task, "products", []) , start=1):
-            
+
+                product_stocks = {}
+
+                chrt_id_map = self.db_data_fetcher.techsize_with_chrtid_dict
+
+                warehouses_available_for_product = {wh_id for wh_id in available_warehouses_from_ids 
+                                                    if wh_id not in self.db_data_fetcher.banned_warehouses_for_nmids.get(product.product_wb_id, [])}
+
+                for size in getattr(product, "sizes", []):
+
+                    try:
+                    
+                        for wh_id, wh_entry in product_stocks_by_size_with_warehouse.items():
+                            
+                            banned_wh_list = self.db_data_fetcher.blocked_warehouses_for_skus.get(product.product_wb_id, [-1])
+                            is_banned = wh_id in banned_wh_list
+
+                            if wh_id not in available_warehouses_from_ids or is_banned:
+                                continue
+
+                            wh_items = []
+
+                            for tech_size_id, qty in wh_entry.items():
+                                chrt_id = chrt_id_map.get(product.product_wb_id,{}).get(tech_size_id, None)
+                                if chrt_id:
+                                    wh_items.append({'chrtID': chrt_id, 'count': qty, 'techSize': tech_size_id})
+                                else:
+                                    self.logger.warning("Для nmID=%s не найден chrtID для techSize=%s", product.product_wb_id, tech_size_id)
+                                    self.products_with_missing_chrtids.append(product.product_wb_id)
+                            
+                            product_stocks[wh_id] = wh_items
+
+                    except Exception as e:
+                        self.logger.exception("Ошибка при получении стоков для продукта nmID=%s: %s", getattr(product, "product_wb_id", None), e)
+                        product_stocks = None
+
+                empty_wh_list = []
+                for warehouse_id, stocks in product_stocks.items():
+                    if not stocks:
+                        empty_wh_list.append(warehouse_id)
+
+                for warehouse_id in empty_wh_list:
+                        del product_stocks[warehouse_id]
+
                 
-            
                 self.logger.info("Задание #%s: обработка продукта #%s (nmID=%s)", task_idx, product_idx, getattr(product, "product_wb_id", None))
                 
-                try:
-                    # Cмотрим остатки по всем складам
-                    product_stocks, status_code = self.fetch_stocks_by_nmid(nmid=product.product_wb_id,
-                                                               warehouses_in_task_list=available_warehouses_from_ids)
+                # try:
+                #     # Cмотрим остатки по всем складам
+                #     product_stocks, status_code = self.fetch_stocks_by_nmid(nmid=product.product_wb_id,
+                #                                                warehouses_in_task_list=available_warehouses_from_ids)
+                #     self.logger.info(f'Было: {product_stocks} стало {product_stocks_new}')
                     
-                    if status_code != 200:
-                        self.logger.error("Не получилось получить актуальные стоки для nmID=%s", getattr(product, "product_wb_id", None))
-                        if status_code in (429, 500, 502, 503, 504) and self.bad_request_count < self.bad_request_max_count:
-                            self.bad_request_count += 1
-                            self.logger.error("Ошибка %s при получении стоков nmID=%s. Пропускаем продукт.",
-                                              status_code, getattr(product, "product_wb_id", None))
-                            cooldown_needed = self.timeout_error_request_cooldown_list[self.timeout_error_cooldown_index]
-                            self.logger.error("Ждём %s секунд перед следующей попыткой.", cooldown_needed)
-                            time.sleep(cooldown_needed)
-                            self.timeout_error_cooldown_index = (self.timeout_error_cooldown_index + 1) % len(self.timeout_error_request_cooldown_list)
-                            continue
-                        elif status_code not in (200,201,202,203,204):
-                            self.logger.error("Полученный ответ от ВБ не соответсвует ожидание, отключаем скрипт")
-                            sys.exit()
-                    else:
-                        self.bad_request_count = 0
-                        self.timeout_error_cooldown_index = 0
+                #     self.compare_dicts(product_stocks, product_stocks_new)
                     
-                    self.logger.debug("Стоки для nmID=%s: %s", getattr(product, "product_wb_id", None), product_stocks)
+                #     if status_code != 200:
+                #         self.logger.error("Не получилось получить актуальные стоки для nmID=%s", getattr(product, "product_wb_id", None))
+                #         if status_code in (429, 500, 502, 503, 504) and self.bad_request_count < self.bad_request_max_count:
+                #             self.bad_request_count += 1
+                #             self.logger.error("Ошибка %s при получении стоков nmID=%s. Пропускаем продукт.",
+                #                               status_code, getattr(product, "product_wb_id", None))
+                #             cooldown_needed = self.timeout_error_request_cooldown_list[self.timeout_error_cooldown_index]
+                #             self.logger.error("Ждём %s секунд перед следующей попыткой.", cooldown_needed)
+                #             time.sleep(cooldown_needed)
+                #             self.timeout_error_cooldown_index = (self.timeout_error_cooldown_index + 1) % len(self.timeout_error_request_cooldown_list)
+                #             continue
+                #         elif status_code not in (200,201,202,203,204):
+                #             self.logger.error("Полученный ответ от ВБ не соответсвует ожидание, отключаем скрипт")
+                #             sys.exit()
+                #     else:
+                #         self.bad_request_count = 0
+                #         self.timeout_error_cooldown_index = 0
+                    
+                #     self.logger.debug("Стоки для nmID=%s: %s", getattr(product, "product_wb_id", None), product_stocks)
 
-                except Exception as e:
-                    self.logger.exception("Ошибка при получении стоков для продукта nmID=%s: %s", getattr(product, "product_wb_id", None), e)
-                    product_stocks = None
+                # except Exception as e:
+                #     self.logger.exception("Ошибка при получении стоков для продукта nmID=%s: %s", getattr(product, "product_wb_id", None), e)
+                #     product_stocks = None
 
                 # Если нет остатков
                 if not product_stocks:
@@ -914,6 +978,7 @@ class RegularTaskFactory:
                 product = req_data.get("product")
                 warehouse_entries = req_data.get("warehouse_entries")
                 self.logger.info("Готово тело заявки для отправки: %s", warehouse_req_body)
+
                 try:
                     self.logger.debug(f"POST: {warehouse_req_body}")
                     self.logger.debug("Отправка заявки: %s", warehouse_req_body)
@@ -982,8 +1047,26 @@ class RegularTaskFactory:
 
         self.logger.info("Завершение обработки регулярного задания()")
 
-        
-        
+    def compare_dicts(self, dict1: dict, dict2: dict):
+        # Проверяем одинаковое ли количество индексов
+        keys1, keys2 = set(dict1.keys()), set(dict2.keys())
+        if keys1 != keys2:
+            self.logger.info("❌ Разные множества ключей:")
+            self.logger.info(f"  Только в первом: {str(keys1 - keys2)}")
+            self.logger.info(f"  Только во втором: {str(keys2 - keys1)}")
+            return
+
+        self.logger.info(f"✅ Количество индексов совпадает: {len(keys1)}")
+
+        # Проверяем размеры списков внутри каждого ключа
+        for key in keys1:
+            len1, len2 = len(dict1[key]), len(dict2[key])
+            if len1 < len2:
+                self.logger.info(f"❌ По индексу {key} разное количество chrtID: было {len1}, стало {len2}")
+                return
+            else:
+                self.logger.info(f"✅ По индексу {key} количество chrtID совпадает: {len1}")
+    
 
         #                     self.logger.info("Готово тело заявки для отправки: %s", warehouse_req_body)
         #                     try:

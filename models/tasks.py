@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 from datetime import datetime
 
 class ProductSizeInfo(BaseModel):
@@ -13,6 +13,7 @@ class ProductSizeInfo(BaseModel):
 class ProductToTask(BaseModel):
     product_wb_id: int
     sizes: List[ProductSizeInfo]
+
 
 class TaskWithProducts(BaseModel):
     task_id: int
