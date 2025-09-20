@@ -5,149 +5,103 @@ import asyncio
 import aiomysql
 import pymysql
 from dotenv import load_dotenv
+import queue
+import threading
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
-# ================================
-# Async (aiomysql)
-# ================================
 
-class AsyncDatabase:
-    def __init__(self):
-        self.pool = None
+class ConnectionPool:
+    def __init__(self, maxsize=10, **db_params):
+        self._pool = queue.Queue(maxsize)
+        self._db_params = db_params
+        self._lock = threading.Lock()
 
-    async def connect(self, retries: int = 5, delay: int = 2):
-        if self.pool is not None:
-            return self.pool
+        for _ in range(maxsize):
+            self._pool.put(self._create_connection())
 
-        for attempt in range(1, retries + 1):
+    def _create_connection(self):
+        return pymysql.connect(
+            cursorclass=pymysql.cursors.DictCursor,
+            autocommit=True,
+            **self._db_params)
+
+    def get_connection(self, timeout=5):
+        try:
+            conn = self._pool.get(timeout=timeout)
+            if not conn.open:
+                conn = self._create_connection()
+            return conn
+        except queue.Empty:
+            raise ConnectionError(f"Нет свободных соединений в пуле (maxsize={self._pool.maxsize})")
+
+
+    def return_connection(self, conn):
+        try:
+            if conn.open:
+                self._pool.put(conn)
+            else:
+                self._pool.put(self._create_connection())
+        except Exception:
+            self._pool.put(self._create_connection())
+
+    def close_all(self):
+        while not self._pool.empty():
+            conn = self._pool.get()
             try:
-                self.pool = await aiomysql.create_pool(
-                    host=os.getenv('NEZKA_DB_MYSQL_HOST'),
-                    port=int(os.getenv('NEZKA_DB_MYSQL_PORT')),
-                    user=os.getenv('NEZKA_DB_MYSQL_USER'),
-                    password=os.getenv('NEZKA_DB_MYSQL_PASSWORD'),
-                    db=os.getenv('NEZKA_DB_MYSQL_DB'),
-                    autocommit=True)
-                
-                logging.info("Successfully connected to async MySQL DB.")
-                return self.pool
-            except Exception as e:
-                logging.warning(f"[{attempt}/{retries}] Async MySQL connection failed: {e}")
-                await asyncio.sleep(delay)
+                conn.close()
+            except Exception:
+                pass
 
-        raise ConnectionError("Failed to connect to async MySQL DB after multiple attempts.")
-    
-    async def close(self):
-        if self.pool:
-            self.pool.close()
-            await self.pool.wait_closed()
-            self.pool = None
 
-    async def execute_query(self, query, params=None):
-        pool = await self.connect()
-        async with pool.acquire() as conn:
-            async with conn.cursor() as cursor:
-                try:
-                    await cursor.execute(query, params)
-                    result = await cursor.fetchall()
-                    return result
-                except Exception as e:
-                    logging.error(f"Async execute_query error: {e}")
-                    raise
-
-    async def execute_scalar(self, query, params=None):
-        result = await self.execute_query(query, params)
-        return result[0][0] if result else None
-
-    async def execute_non_query(self, query, params=None):
-        pool = await self.connect()
-        async with pool.acquire() as conn:
-            async with conn.cursor() as cursor:
-                try:
-                    await cursor.execute(query, params)
-                except Exception as e:
-                    logging.error(f"Async execute_non_query error: {e}")
-                    raise
-
-    async def execute_many(self, query, param_list):
-        pool = await self.connect()
-        async with pool.acquire() as conn:
-            async with conn.cursor() as cursor:
-                try:
-                    await cursor.executemany(query, param_list)
-                except Exception as e:
-                    logging.error(f"Async execute_many error: {e}")
-                    raise
-
-# ================================
-# Sync (pymysql)
-# ================================
 
 class SyncDatabase:
-    def __init__(self, host, port, user, password, db):
-        self.connection = None
-        self.db_params = {
-            "host": host,
-            "port": int(port),
-            "user": user,
-            "password": password,
-            "db": db,
-            "autocommit": True,
-            "cursorclass": pymysql.cursors.DictCursor
-        }
-
-    def connect(self, retries=5, delay=2):
-        if self.connection is not None:
-            return self.connection
-
-        for attempt in range(1, retries + 1):
-            try:
-                self.connection = pymysql.connect(**self.db_params)
-                return self.connection
-            except Exception as e:
-                logging.error(f"[{attempt}/{retries}] Failed to connect to MySQL DB: {e}")
-                time.sleep(delay)
-
-        raise ConnectionError("Failed to connect to MySQL DB after multiple attempts.")
-
-    def close(self):
-        if self.connection:
-            self.connection.close()
-            self.connection = None
+    def __init__(self, host, port, user, password, db, maxsize=10):
+        self.pool = ConnectionPool(
+            host=host,
+            port=int(port),
+            user=user,
+            password=password,
+            db=db,
+            maxsize=maxsize)
 
     def execute_query(self, query, params=None):
+        conn = self.pool.get_connection()
         try:
-            conn = self.connect()
             with conn.cursor() as cursor:
                 cursor.execute(query, params)
                 return cursor.fetchall()
         except Exception as e:
             logging.error(f"Sync execute_query error: {e}")
             raise
+        finally:
+            self.pool.return_connection(conn)
 
     def execute_scalar(self, query, params=None):
         result = self.execute_query(query, params)
         return list(result[0].values())[0] if result else None
 
     def execute_non_query(self, query, params=None):
+        conn = self.pool.get_connection()
         try:
-            conn = self.connect()
             with conn.cursor() as cursor:
                 cursor.execute(query, params)
         except Exception as e:
             logging.error(f"Sync execute_non_query error: {e}")
-            self.connection.rollback()
+            conn.rollback()
             raise
+        finally:
+            self.pool.return_connection(conn)
 
     def execute_many(self, query, param_list):
+        conn = self.pool.get_connection()
         try:
-            conn = self.connect()
             with conn.cursor() as cursor:
                 cursor.executemany(query, param_list)
         except Exception as e:
             logging.error(f"Sync execute_many error: {e}")
-            self.connection.rollback()
+            conn.rollback()
             raise
-
+        finally:
+            self.pool.return_connection(conn)

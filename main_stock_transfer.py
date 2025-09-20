@@ -17,7 +17,7 @@ from services.delivered_supply_process import DeliveredSupplyProcessor
 from utils.logger import simple_logger
 from services.wb_api_data_fetcher import WBAPIDataFetcher
 from services.db_data_fetcher import DBDataFetcher
-
+import threading
 
 def main():
         logger.info("Запускаем main")
@@ -78,13 +78,23 @@ def main():
 
                 regular_task_factory.run_calculations() # Запуск рассчетов регулярных заданий
 
+                send_request_task = threading.Thread(target=regular_task_factory.send_all_requests,
+                                     kwargs={"quota_dict": quota_dict,
+                                             "size_map": db_data_fetcher.size_map})
+                
+
+                insert_products_on_the_way_task = threading.Thread(target=regular_task_factory.product_on_the_way_consumer)
+
                 if now.minute != 0 and now.second != 1:
                         next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=1)
                         wait_seconds = (next_hour - now).total_seconds()
                         logger.info(f"Ждём до {next_hour.strftime('%H:%M:%S')} ({int(wait_seconds)} сек.)")
                         time.sleep(wait_seconds)
+
+                send_request_task.start() # Запуск потока отправки заявок
+                insert_products_on_the_way_task.start() # Запуск потока записи в бд отправ
                 
-                regular_task_factory.send_all_requests(quota_dict=quota_dict, size_map=db_data_fetcher.size_map)
+                # regular_task_factory.send_all_requests(quota_dict=quota_dict, size_map=db_data_fetcher.size_map)
 
                 one_time_task_processor.process_one_time_tasks(quota_dict=quota_dict, 
                                                                 office_id_list=office_id_list) # Запуск обработки разовых заданий

@@ -14,6 +14,7 @@ import sys
 from utils.logger import simple_logger
 from services.db_data_fetcher import DBDataFetcher
 from datetime import datetime, timedelta
+import queue
 
 Row = Union[Mapping[str, Any], Sequence[Any]]
 
@@ -46,6 +47,7 @@ class RegularTaskFactory:
         self.send_transfer_request_cooldown = 0.1
         self.all_request_bodies_to_send = []
         self.products_with_missing_chrtids = []
+        self.sent_product_queue = queue.Queue()
 
     @simple_logger(logger_name=__name__)
     def run_calculations(self):
@@ -1020,7 +1022,7 @@ class RegularTaskFactory:
 
                                 product_on_the_way_entry = (product.product_wb_id, warehouse_entries[size.size_id]['count'], size_map[size.size_id], src_warehouse_id, dst_warehouse_id)
                                 
-                                products_on_the_way_array.append(product_on_the_way_entry)
+                                self.sent_product_queue.put(product_on_the_way_entry)
                     elif response.status_code in [429, 500, 502, 503, 504] and self.bad_request_count < self.bad_request_max_count:
                         self.logger.error("Ошибка %s при отправке заявки на трансфер nmID=%s. Пропускаем заявку.",
                                             response.status_code, getattr(product, "product_wb_id", None))
@@ -1052,16 +1054,17 @@ class RegularTaskFactory:
             except Exception as e:
                 self.logger.exception("Ошибка при подготовке/отправке заявки src=%s dst=%s: %s",
                                         src_warehouse_id, dst_warehouse_id, e)
+                
+        self.all_request_bodies_to_send.clear()
+        # try:
+        #     self.all_request_bodies_to_send.clear()  # Очищаем массив после отправки всех заявок
+        #     self.db_controller.insert_products_on_the_way(items=products_on_the_way_array)
+        #     # self.db_controller.update_transfer_qty_from_task(task)  # Тут в БД несем задания
+        #     self.logger.info("Регуларные задания: обновлены количества трансферов в БД")
+        # except Exception as e:
+        #     self.logger.exception("Ошибка при отправке регулярных заданий в БД: %s", e)
 
-        try:
-            self.all_request_bodies_to_send.clear()  # Очищаем массив после отправки всех заявок
-            self.db_controller.insert_products_on_the_way(items=products_on_the_way_array)
-            # self.db_controller.update_transfer_qty_from_task(task)  # Тут в БД несем задания
-            self.logger.info("Регуларные задания: обновлены количества трансферов в БД")
-        except Exception as e:
-            self.logger.exception("Ошибка при отправке регулярных заданий в БД: %s", e)
-
-        self.logger.info("Завершение обработки регулярного задания()")
+        self.logger.info("Завершение обработки заявок на трансфер.")
 
     def compare_dicts(self, dict1: dict, dict2: dict):
         # Проверяем одинаковое ли количество индексов
@@ -1352,6 +1355,25 @@ class RegularTaskFactory:
             self.bad_request_count +=1
             return 0
 
+
+    def product_on_the_way_consumer(self):
+        """
+        Функция-потребитель для обработки очереди отправленных продуктов.
+        """
+        while True:
+            try:
+                item = self.sent_product_queue.get(timeout=600)  # Ждем элемент с таймаутом
+                if item is None:  # Проверка на сигнал завершения
+                    break
+                self.logger.debug(f"Запись отправленного продукта в БД: {item}")
+                items = [item]
+                self.db_controller.insert_products_on_the_way(items=items)
+                self.sent_product_queue.task_done()
+                self.logger.info(f"Продукт успешно добавлен в БД: {item}")
+            except queue.Empty:
+                continue
+            except Exception as e:
+                self.logger.exception("Ошибка при обработке элемента очереди: %s", e)
 
 
 

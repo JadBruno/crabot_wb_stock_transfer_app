@@ -68,7 +68,7 @@ class SyncAPIController:
 
         except requests.exceptions.RequestException as req_err:
             self.logger.error(f"Request failed: {req_err}")
-            return {"status": 503,
+            return {"status_code": 503,
                     "error": "Service Unavailable",
                     "details": {"message": str(req_err)}}
 

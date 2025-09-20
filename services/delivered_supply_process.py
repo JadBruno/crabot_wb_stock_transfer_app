@@ -73,7 +73,7 @@ class DeliveredSupplyProcessor:
                                              headers=headers,
                                              params=params)
 
-        if result is None:
+        if result is None or type(result) is dict:
             self.logger.error("Ошибка при получении данных по поставкам из WB Analytics API")
             return None
         if result.status_code != 200:

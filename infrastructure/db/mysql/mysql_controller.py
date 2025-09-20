@@ -2,13 +2,13 @@ from collections import defaultdict
 from infrastructure.db.mysql.base import SyncDatabase
 from models.tasks import TaskWithProducts, ProductToTask, ProductSizeInfo
 import json
-from utils.logger import simple_logger
+from utils.logger import simple_logger, get_logger
 
 class MySQLController():
 
     def __init__(self, db:SyncDatabase):
-
         self.db = db
+        self.logger = get_logger(__name__)
 
 
     @staticmethod
@@ -227,7 +227,8 @@ class MySQLController():
         try:
             self.db.execute_many(sql, params)
             return True
-        except Exception:
+        except Exception as e:
+            self.logger.error(f"Ошибка при вставке товаров в пути: {e}")
             return False
         
     @simple_logger(logger_name=__name__)
