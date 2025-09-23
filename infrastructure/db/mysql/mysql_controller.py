@@ -258,19 +258,26 @@ class MySQLController():
     def get_products_transfers_on_the_way(self):
         sql = """
             SELECT
-                entry_id,
                 nmId AS wb_article_id,
                 warehouse_from_id,
                 warehouse_to_id,
                 size_id,
                 qty_left_to_deliver as qty,
-                created_at
+                created_at,
+                entry_id,
             FROM mp_data.a_wb_stock_transfer_products_on_the_way
             WHERE created_at > NOW() - INTERVAL 14 day
             AND is_finished != 1;"""
         
         try:
-            return self.db.execute_query(sql)
+            sql_result = self.db.execute_query(sql)
+            result_to_return = []
+
+            for entry in sql_result:
+                if entry['qty'] > 0:
+                    result_to_return.append(entry)
+
+            return sql_result
         except Exception:
             return False
         
@@ -316,7 +323,8 @@ class MySQLController():
 
         warehouse_name_id_to_wb_office_id_map = self.get_warehouse_name_id_to_wb_office_id_map()
 
-        sql = """SELECT s.nmId as wb_article_id, 
+        sql = """SELECT s.stock_id,
+                        s.nmId as wb_article_id, 
                         s.warehouseName_id as warehouse_id,
                         s.techSize_id as size_id,
                         s.time_end,
@@ -329,14 +337,19 @@ class MySQLController():
                 AND wh.region_id IS NOT NULL;"""
 
         try:
-            result = self.db.execute_query(sql)
+            sql_result = self.db.execute_query(sql)
 
-            for entry in result:
+            result_to_return = []
+
+            for entry in sql_result:
+
                 wh_id = entry['warehouse_id']
                 if wh_id in warehouse_name_id_to_wb_office_id_map:
                     entry['warehouse_id'] = warehouse_name_id_to_wb_office_id_map[wh_id]
+
+                result_to_return.append(entry)
                     
-            return result
+            return result_to_return
         except Exception:
             return False
         
@@ -356,7 +369,7 @@ class MySQLController():
         except Exception:
             return False
     
-        
+    # Для обработки заданий по регионам основного процесса
     @simple_logger(logger_name=__name__)
     def get_products_transfers_on_the_way_with_region(self):
         sql = """
@@ -366,19 +379,25 @@ class MySQLController():
                 warehouse_to_id,
                 size_id,
                 qty_left_to_deliver AS qty,
-                awstww.region_id AS to_region_id,
-                awstwf.region_id AS from_region_id,
+                whto.region_id AS to_region_id,
+                whfrom.region_id AS from_region_id,
                 created_at
             FROM mp_data.a_wb_stock_transfer_products_on_the_way
-            LEFT JOIN mp_data.a_wb_stock_transfer_wb_warehourses awstww
-                ON awstww.wb_office_id = mp_data.a_wb_stock_transfer_products_on_the_way.warehouse_to_id
-            LEFT JOIN mp_data.a_wb_stock_transfer_wb_warehourses awstwf
-                ON awstwf.wb_office_id = mp_data.a_wb_stock_transfer_products_on_the_way.warehouse_from_id
+            LEFT JOIN mp_data.a_wb_warehouseName whto
+                ON whto.warehouse_wb_id = mp_data.a_wb_stock_transfer_products_on_the_way.warehouse_to_id
+            LEFT JOIN mp_data.a_wb_warehouseName whfrom
+                ON whfrom.warehouse_wb_id = mp_data.a_wb_stock_transfer_products_on_the_way.warehouse_from_id
             WHERE is_finished != 1
+            AND qty_left_to_deliver > 0
             AND created_at >= NOW() - INTERVAL 14 DAY;"""
         
         try:
-            return self.db.execute_query(sql)
+            sql_result = self.db.execute_query(sql)
+            result_to_return = []
+            for entry in sql_result:
+                result_to_return.append(entry)
+
+            return result_to_return
         except Exception:
             return False
         
@@ -507,9 +526,9 @@ class MySQLController():
     @simple_logger(logger_name=__name__)
     def get_warehouses_regions_map(self):
         sql = """
-            SELECT wb_office_id, region_id
-            FROM mp_data.a_wb_stock_transfer_wb_warehourses awstww
-            WHERE wb_office_id IS NOT NULL
+            SELECT warehouse_wb_id as wb_office_id, region_id
+            FROM mp_data.a_wb_warehouseName awstww
+            WHERE warehouse_wb_id IS NOT NULL
         """
         try:
             return self.db.execute_query(sql)

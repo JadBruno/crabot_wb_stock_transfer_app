@@ -303,6 +303,7 @@ class RegularTaskFactory:
                         region_obj.target_share = task_row.get(target_key, 0) or 0
                         region_obj.min_share = task_row.get(min_key, 0) or 0
 
+
                         # Целевые/минимальные стоки в штуках
                         region_obj.target_stock_by_region = math.floor(task_for_size.total_stock_for_product * region_obj.target_share)
 
@@ -310,7 +311,8 @@ class RegularTaskFactory:
 
                         region_obj.min_qty_fixed = task_row.get(f"min_qty_to_transfer_{region_obj.attribute}", 0) or 0
                         # Сколько нужно довезти до цели
-                        region_obj.amount_to_deliver = math.floor(max(0, region_obj.target_stock_by_region - region_obj.stock_by_region_before, region_obj.min_qty_fixed))
+                        region_obj.amount_to_deliver = math.floor(max(0, region_obj.target_stock_by_region - region_obj.stock_by_region_before, 
+                                                                      region_obj.min_qty_fixed-region_obj.stock_by_region_before))
 
                         region_obj.is_below_min = (region_obj.stock_by_region_before <= region_obj.min_stock_by_region
                                                    and region_obj.amount_to_deliver > 0)
@@ -520,7 +522,6 @@ class RegularTaskFactory:
             qty = int(qty) if qty is not None else 0
             size_name = str(size_name) if size_name is not None else ""
 
-
             art = products.setdefault(wb_article_id, {"wb_article_id": wb_article_id, "total_qty": 0, "sizes": {}})
             size_node = art["sizes"].setdefault(size_id, {
                 "wb_article_id": wb_article_id, "size_id": size_id, "size_name": size_name or "",
@@ -621,6 +622,7 @@ class RegularTaskFactory:
                                                transfers_rows: Iterable[Row]) -> None:
 
         for r in transfers_rows:
+
             if isinstance(r, Mapping):
                 wb_article_id   = r.get("wb_article_id") or r.get("nmId")
                 warehouse_from_id = r.get("warehouse_from_id")
@@ -655,6 +657,9 @@ class RegularTaskFactory:
                 from_region_id = int(from_region_id)
             except (TypeError, ValueError):
                 continue
+
+            if wb_article_id == 25196297 or size_id == 4:
+                a = 1
 
             # получаем/создаём артикул и размер
             art = products_collection.setdefault(wb_article_id, {
@@ -704,10 +709,6 @@ class RegularTaskFactory:
             size_node["total_qty"]        = max(0, size_node["total_qty"] - delta)
             
 
-            # TODO логгирование случаев, когда товаров не хватает на складе для списания
-            # if delta < qty:
-                
-            #     pass
 
 
     @simple_logger(logger_name=__name__)
@@ -831,6 +832,12 @@ class RegularTaskFactory:
                 warehouses_available_for_product = {wh_id for wh_id in available_warehouses_from_ids 
                                                     if wh_id not in self.db_data_fetcher.banned_warehouses_for_nmids.get(product.product_wb_id, [])}
 
+                if product.product_wb_id == 4521536:
+                    a = 1
+
+
+                
+                
                 for size in getattr(product, "sizes", []):
 
                     try:
@@ -1001,15 +1008,15 @@ class RegularTaskFactory:
                     self.logger.debug(f"POST: {warehouse_req_body}")
                     self.logger.debug("Отправка заявки: %s", warehouse_req_body)
 
-                    response = self.send_transfer_request(warehouse_req_body)
-                    time.sleep(self.send_transfer_request_cooldown)
-                    if response.status_code in [200, 201, 202, 204]:
-                    # class MockResponse:
-                    #     def __init__(self, status_code):
-                    #         self.status_code = status_code
-                    # response = MockResponse(200)  # Заглушка для теста
-                    # mock_true = True
-                    # if mock_true:
+                    # response = self.send_transfer_request(warehouse_req_body)
+                    # time.sleep(self.send_transfer_request_cooldown)
+                    # if response.status_code in [200, 201, 202, 204]:
+                    class MockResponse:
+                        def __init__(self, status_code):
+                            self.status_code = status_code
+                    response = MockResponse(200)  # Заглушка для теста
+                    mock_true = True
+                    if mock_true:
                         self.bad_request_count = 0
                         self.timeout_error_cooldown_index = 0
                         self.logger.info("Заявка успешно отправлена: src=%s -> dst=%s; nmID=%s",
