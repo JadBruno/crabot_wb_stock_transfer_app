@@ -69,10 +69,10 @@ def main():
         quota_dict = {office_id: {'src':1000000, 'dst':1000000} for office_id in office_id_list}
 
         try:
-                # if datetime.now().hour == 8:
-                #         quota_dict = {office_id: {'src':1000000, 'dst':1000000} for office_id in office_id_list}
-                # else:
-                #         quota_dict = asyncio.run(wb_api_data_fetcher.fetch_quota(office_id_list=office_id_list)) 
+                if datetime.now().hour == 8:
+                        quota_dict = {office_id: {'src':1000000, 'dst':1000000} for office_id in office_id_list}
+                else:
+                        quota_dict = asyncio.run(wb_api_data_fetcher.fetch_quota(office_id_list=office_id_list)) 
 
                 regular_task_factory.quota_dict = quota_dict # Передали квоты в фабрику заданий
 
@@ -88,7 +88,7 @@ def main():
                         next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=1)
                         wait_seconds = (next_hour - now).total_seconds()
                         logger.info(f"Ждём до {next_hour.strftime('%H:%M:%S')} ({int(wait_seconds)} сек.)")
-                        # time.sleep(wait_seconds)
+                        time.sleep(wait_seconds)
 
                 send_request_task.start() # Запуск потока отправки заявок
                 insert_products_on_the_way_task.start() # Запуск потока записи в бд отправ
