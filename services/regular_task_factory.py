@@ -234,6 +234,7 @@ class RegularTaskFactory:
         warehouse_src_sort_order = self.sort_destinations_by_key(warehouse_priority_dict, key='src_priority')
         warehouse_dst_sort_order = self.sort_destinations_by_key(warehouse_priority_dict, key='dst_priority')
 
+        self.warehouse_dst_sort_order = warehouse_dst_sort_order    
         warehouses_with_regions = {val: k for k, vals in warehouses_available_to_stock_transfer.items() for val in vals}
 
         src_warehouses_with_quota_dict = defaultdict(int)
@@ -478,6 +479,8 @@ class RegularTaskFactory:
                     warehouse_dst_sort_order=warehouse_dst_sort_order,
                     size_map=size_map,
                     product_stocks_by_size_with_warehouse=product_stocks_by_size_with_warehouse)
+
+        self.sort_request_bodies_by_destination_priority(warehouse_dst_sort_order)
 
         return None
 
@@ -797,11 +800,17 @@ class RegularTaskFactory:
                 tasks_to_process.append(new_task)
 
         if tasks_to_process:
-            self.create_stock_transfer_request(tasks_to_process=tasks_to_process, quota_dict=quota_dict, size_map=size_map, product_stocks_by_size_with_warehouse=product_stocks_by_size_with_warehouse)
-
+            self.create_stock_transfer_request(tasks_to_process=tasks_to_process, 
+                                               quota_dict=quota_dict, 
+                                               size_map=size_map, 
+                                               product_stocks_by_size_with_warehouse=product_stocks_by_size_with_warehouse)
+        
 
     @simple_logger(logger_name=__name__)
-    def create_stock_transfer_request(self, tasks_to_process, quota_dict, size_map, product_stocks_by_size_with_warehouse):
+    def create_stock_transfer_request(self, tasks_to_process, 
+                                      quota_dict, 
+                                      size_map, 
+                                      product_stocks_by_size_with_warehouse):
 
         # time.sleep(0.5) - Тут пауза не нужна. Она нужна, только если реально был послан запрос к WB. А многие запросы не посылаются из-за отсутствия квот. Кулдаун перенесен сразу после запроса к WB
 
@@ -832,11 +841,6 @@ class RegularTaskFactory:
 
                 warehouses_available_for_product = {wh_id for wh_id in available_warehouses_from_ids 
                                                     if wh_id not in self.db_data_fetcher.banned_warehouses_for_nmids.get(product.product_wb_id, [])}
-
-                if product.product_wb_id == 4521536:
-                    a = 1
-
-
                 
                 
                 for size in getattr(product, "sizes", []):
@@ -953,6 +957,20 @@ class RegularTaskFactory:
                         except Exception as e:
                             self.logger.exception("Ошибка при подготовке/отправке заявки src=%s dst=%s: %s",
                                                   src_warehouse_id, dst_warehouse_id, e)
+                            
+        
+
+    def sort_request_bodies_by_destination_priority(self, warehouse_dst_sort_order):
+        # Сортируем массив тел заявок по приоритету склада-получателя
+        def sort_key(req_data):
+            dst_warehouse_id = req_data.get("dst_warehouse_id")
+            if dst_warehouse_id in warehouse_dst_sort_order:
+                return warehouse_dst_sort_order.index(dst_warehouse_id)
+            else:
+                return float("inf")  # Если склада нет в списке приоритетов, ставим его в конец
+
+        self.all_request_bodies_to_send.sort(key=sort_key)
+
 
 
     def send_all_requests(self, quota_dict, size_map):
