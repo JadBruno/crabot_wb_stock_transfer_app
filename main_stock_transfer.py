@@ -2,6 +2,7 @@ import os
 import time
 import logging
 import asyncio
+import sys
 from datetime import datetime, timedelta
 from services.warehouse_processor import OneTimeTaskProcessor
 from dependencies.dependencies import (api_controller,
@@ -39,7 +40,7 @@ def main():
                                                              logger=logger,
                                                              size_map=db_data_fetcher.size_map)
         
-        # delivered_supply_processor.process_delivered_supplies()
+        delivered_supply_processor.process_delivered_supplies()
 
 
         one_time_task_processor = OneTimeTaskProcessor(api_controller=api_controller,
@@ -69,10 +70,10 @@ def main():
         quota_dict = {office_id: {'src':1000000, 'dst':1000000} for office_id in office_id_list}
 
         try:
-                if datetime.now().hour == 8:
-                        quota_dict = {office_id: {'src':1000000, 'dst':1000000} for office_id in office_id_list}
-                else:
-                        quota_dict = asyncio.run(wb_api_data_fetcher.fetch_quota(office_id_list=office_id_list)) 
+                # if datetime.now().hour == 8:
+                #         quota_dict = {office_id: {'src':1000000, 'dst':1000000} for office_id in office_id_list}
+                # else:
+                #         quota_dict = asyncio.run(wb_api_data_fetcher.fetch_quota(office_id_list=office_id_list)) 
 
                 regular_task_factory.quota_dict = quota_dict # Передали квоты в фабрику заданий
 
@@ -102,10 +103,11 @@ def main():
                 logger.debug('Запрашиваем квоты еще разок перед отключением скрипта')
                 quota_dict_unmocked = asyncio.run(wb_api_data_fetcher.fetch_quota(office_id_list=office_id_list)) 
                 mysql_controller.log_warehouse_state(quota_dict_unmocked) # Залогировали состояние складов по квотам
-
+                
 if __name__ == '__main__':
     start_time = time.perf_counter()
     main()
     end_time = time.perf_counter()      
     elapsed_time = end_time - start_time
     logger.debug(f"Время выполнения программы: {elapsed_time:.2f} секунд")
+    sys.exit()

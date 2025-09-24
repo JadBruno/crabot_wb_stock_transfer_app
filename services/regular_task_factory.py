@@ -383,7 +383,7 @@ class RegularTaskFactory:
     def _build_task_for_size(self, product, size_id, size_data):
         result = RegularTaskForSize(nmId=product.get("wb_article_id"),
                                     size=size_data.get("size_name"),
-                                    tech_size_id=size_id,
+                                    tech_size_id=size_data.get("size_id"),
                                     total_stock_for_product=size_data.get("total_qty", 0),
                                     availability_days_by_warehouse=size_data.get('availability_days_by_warehouse', {}) or {},
                                     availability_days_by_region=size_data.get('availability_days_by_region', {}) or {},
@@ -505,11 +505,14 @@ class RegularTaskFactory:
                     continue
 
                 # раскладываем по складам
+                size_map_reversed = {v: k for k, v in self.size_map.items()}
+                size_name = size_map_reversed.get(size_id, str(size_id))
+
                 used = self._distribute_to_warehouses(src_region_data_entry,
                                                     current_src_entry_warehouse_sort,
                                                     amount_to_be_sent,
                                                     dst_region_data_entry,
-                                                    size_id,
+                                                    size_name,
                                                     product_stocks_by_size_with_warehouse,
                                                     source_warehouse_used_in_transfer,
                                                     task_for_size)
@@ -557,7 +560,7 @@ class RegularTaskFactory:
                                     current_src_entry_warehouse_sort,
                                     amount_to_be_sent,
                                     dst_region_data_entry,
-                                    size_id,
+                                    size_name,
                                     product_stocks_by_size_with_warehouse,
                                     source_warehouse_used_in_transfer,
                                     task_for_size):
@@ -587,7 +590,7 @@ class RegularTaskFactory:
                 # фиксация в product_stocks_by_size_with_warehouse
                 if office_id not in product_stocks_by_size_with_warehouse:
                     product_stocks_by_size_with_warehouse[office_id] = defaultdict(dict)
-                product_stocks_by_size_with_warehouse[office_id][size_id] = qty_in_office
+                product_stocks_by_size_with_warehouse[office_id][size_name] = qty_in_office
 
                 # фиксация для региона-приёмщика
                 dst_region_data_entry.stocks_to_be_sent_to_warehouse_dict[office_id] = (dst_region_data_entry.stocks_to_be_sent_to_warehouse_dict.get(office_id, 0)
@@ -1016,21 +1019,21 @@ class RegularTaskFactory:
                 continue
 
             wh_items = []
-            for tech_size_id, qty in wh_entry.items():
-                chrt_id = chrt_id_map.get(product.product_wb_id, {}).get(tech_size_id)
+            for size_id, qty in wh_entry.items():
+                chrt_id = chrt_id_map.get(product.product_wb_id, {}).get(size_id)
                 if chrt_id:
-                    wh_items.append({"chrtID": chrt_id, "count": qty, "techSize": tech_size_id})
+                    wh_items.append({"chrtID": chrt_id, "count": qty, "techSize": size_id})
                 else:
-                    self.logger.warning(
-                        "Для nmID=%s не найден chrtID для techSize=%s",
-                        product.product_wb_id, tech_size_id,
-                    )
+                    self.logger.warning("Для nmID=%s не найден chrtID для size_id=%s",
+                                        product.product_wb_id, size_id)
+                    
                     self.products_with_missing_chrtids.append(product.product_wb_id)
 
             if wh_items:
                 product_stocks[wh_id] = wh_items
 
         return product_stocks
+
     
 
 
@@ -1364,26 +1367,26 @@ class RegularTaskFactory:
             self.current_cookie_index = (self.current_cookie_index + 1) % len(self.cookie_list) 
 
             # --- МОК для отладки ---
-            # class MockResponse:
-            #     def __init__(self, status_code=200):
-            #         self.status_code = status_code
-            #     def json(self):
-            #         return {"mock": True, "status": self.status_code}
-            #
-            # self.logger.debug("МОК: заявка не отправляется, возврат фейкового ответа.")
-            # return MockResponse(status_code=200)
+            class MockResponse:
+                def __init__(self, status_code=200):
+                    self.status_code = status_code
+                def json(self):
+                    return {"mock": True, "status": self.status_code}
+            
+            self.logger.debug("МОК: заявка не отправляется, возврат фейкового ответа.")
+            return MockResponse(status_code=200)
             # ------------------------
 
-            response = self.api_controller.request(
-                base_url="https://seller-weekly-report.wildberries.ru",
-                method="POST",
-                endpoint="/ns/shifts/analytics-back/api/v1/order",
-                json=request_body,
-                cookies=cookies,
-                headers=headers)
+            # response = self.api_controller.request(
+            #     base_url="https://seller-weekly-report.wildberries.ru",
+            #     method="POST",
+            #     endpoint="/ns/shifts/analytics-back/api/v1/order",
+            #     json=request_body,
+            #     cookies=cookies,
+            #     headers=headers)
             
-            self.logger.info("Ответ на transfer request: status=%s", getattr(response, "status_code", None))
-            return response
+            # self.logger.info("Ответ на transfer request: status=%s", getattr(response, "status_code", None))
+            # return response
 
         except Exception as e:
             self.logger.exception("Ошибка в send_transfer_request: %s", e)
