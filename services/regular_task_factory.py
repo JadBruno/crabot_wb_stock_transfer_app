@@ -36,7 +36,7 @@ class RegularTaskFactory:
         self.cookie_jar = cookie_jar
         self.headers = headers
         self.logger = logger
-        self.MIN_AVAILABILITY_DAY_COUNT_FOR_TRANSFER = 14
+        self.MIN_AVAILABILITY_DAY_COUNT_FOR_TRANSFER = 1 # Отключил проверку по availability - не трогать до лучших времен
         self.quota_dict = None
         self.size_map = size_map  # карта размеров айди - тег
         self.cookie_list = cookie_list
@@ -304,8 +304,7 @@ class RegularTaskFactory:
                         warehouse_src_sort_order=warehouse_src_sort_order,
                         warehouse_dst_sort_order=warehouse_dst_sort_order,
                         size_map=size_map,
-                        product_stocks_by_size_with_warehouse=product_stocks_by_size_with_warehouse,
-                    )
+                        product_stocks_by_size_with_warehouse=product_stocks_by_size_with_warehouse)
 
             except Exception as e:
                 self.logger.debug(f"Ошибка при обработке продукта {product.get('wb_article_id')}: {e}")
@@ -547,8 +546,9 @@ class RegularTaskFactory:
             days_ok = (task_for_size.availability_days_by_warehouse.get(warehouse_id, 0)
                        >= self.MIN_AVAILABILITY_DAY_COUNT_FOR_TRANSFER)
             
-            orders = task_for_size.orders_by_region.get(src_region_id, 0)
-            orders_ok = orders is not None and (src_region_data_entry.stock_by_region_after - orders) >= 0
+            # orders = task_for_size.orders_by_region.get(src_region_id, 0)
+            # orders_ok = orders is not None and (src_region_data_entry.stock_by_region_after - orders) >= 0
+            orders_ok = True  # временно отключил проверку по заказам
             if days_ok and orders_ok:
                 has_valid_donor = True
                 break
@@ -901,7 +901,9 @@ class RegularTaskFactory:
 
             region_id_to_transfer_task = entry['region_id']
 
-            warehouse_to_ids = [warehouse_id for warehouse_id in warehouses_available_to_stock_transfer[region_id_to_transfer_task] if warehouse_id in warehouse_dst_sort_order]
+            warehouses_for_region_list = warehouses_available_to_stock_transfer.get(region_id_to_transfer_task, [])
+
+            warehouse_to_ids = [wh_id for wh_id  in warehouse_dst_sort_order if wh_id in warehouses_for_region_list] 
 
             product_size_array = []
 
@@ -938,7 +940,9 @@ class RegularTaskFactory:
             self.create_stock_transfer_request(tasks_to_process=tasks_to_process, 
                                                quota_dict=quota_dict, 
                                                size_map=size_map, 
-                                               product_stocks_by_size_with_warehouse=product_stocks_by_size_with_warehouse)
+                                               product_stocks_by_size_with_warehouse=product_stocks_by_size_with_warehouse,
+                                               warehouse_src_sort_order=warehouse_src_sort_order,
+                                               warehouse_dst_sort_order=warehouse_dst_sort_order)
         
 
     @simple_logger(logger_name=__name__)
@@ -946,14 +950,20 @@ class RegularTaskFactory:
                                     tasks_to_process,
                                     quota_dict,
                                     size_map,
-                                    product_stocks_by_size_with_warehouse,):
+                                    product_stocks_by_size_with_warehouse,
+                                    warehouse_src_sort_order,
+                                    warehouse_dst_sort_order):
         """
         Создаёт заявки на трансфер по списку задач.
         """
         for task_idx, task in enumerate(tasks_to_process, start=1):
             self.logger.info("Обработка задания #%s", task_idx)
 
-            available_from, available_to = self._check_quota_for_task(task, quota_dict)
+            unsorted_available_from, unsorted_available_to = self._check_quota_for_task(task, quota_dict)
+
+            available_from = [wid for wid in warehouse_src_sort_order if wid in unsorted_available_from]
+            available_to = [wid for wid in warehouse_dst_sort_order if wid in unsorted_available_to]
+
             if not available_from or not available_to:
                 self.logger.warning("Нет доступных складов по квотам для задания #%s. Пропуск.", task_idx)
                 continue
