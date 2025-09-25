@@ -108,6 +108,9 @@ class RegularTaskFactory:
                                                              size_map=size_map,
                                                              blocked_warehouses_for_skus=blocked_warehouses_for_skus)  
 
+            
+            
+
     def load_input_data(self) -> Dict[str, Any]:
         """
         Загружает все необходимые данные из DBDataFetcher для дальнейших расчётов.
@@ -1127,6 +1130,9 @@ class RegularTaskFactory:
                     "Ошибка при обработке заявки #%s (src=%s dst=%s): %s",
                     idx, req_data.get("src_warehouse_id"), req_data.get("dst_warehouse_id"), e)
 
+
+        # self.sent_product_queue.join()
+        # self.sent_product_queue.put(None)
         self.all_request_bodies_to_send.clear()
         self.logger.info("Завершение обработки заявок на трансфер.")
 
@@ -1154,7 +1160,7 @@ class RegularTaskFactory:
 
         try:
             response = self.send_transfer_request(body)
-            time.sleep(self.send_transfer_request_cooldown)
+            time.sleep(0.1)
             return response
         except Exception as e:
             self.logger.exception("Ошибка при отправке запроса: %s", e)
@@ -1168,7 +1174,7 @@ class RegularTaskFactory:
 
         status = response.status_code
         self.logger.info("Ответ от API: status=%s для nmID=%s", status, getattr(product, "product_wb_id", None))
-
+        time.sleep(self.send_transfer_request_cooldown)
         if status in [200, 201, 202, 204]:
             result = self._on_successful_request(src_id, dst_id, product, warehouse_entries, quota_dict, size_map)
             return result
@@ -1454,6 +1460,7 @@ class RegularTaskFactory:
             try:
                 item = self.sent_product_queue.get(timeout=600)  # Ждем элемент с таймаутом
                 if item is None:  # Проверка на сигнал завершения
+                    self.sent_product_queue.task_done()
                     break
                 self.logger.debug(f"Запись отправленного продукта в БД: {item}")
                 items = [item]

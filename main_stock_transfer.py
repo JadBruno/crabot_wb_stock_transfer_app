@@ -104,6 +104,15 @@ def main():
                 quota_dict_unmocked = asyncio.run(wb_api_data_fetcher.fetch_quota(office_id_list=office_id_list)) 
                 mysql_controller.log_warehouse_state(quota_dict_unmocked) # Залогировали состояние складов по квотам
                 
+                try:
+                        send_request_task.join()  # ждем завершения отправки
+                        regular_task_factory.sent_product_queue.join()  # ждем пока все товары запишутся в БД
+                        regular_task_factory.sent_product_queue.put(None)  # сигнал остановки
+                        insert_products_on_the_way_task.join()  # ждем завершения потока
+                except Exception as e:
+                        logger.error(f"Ошибка при завершении потоков: {e}")
+
+
 if __name__ == '__main__':
     start_time = time.perf_counter()
     main()
