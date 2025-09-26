@@ -1383,26 +1383,26 @@ class RegularTaskFactory:
             self.current_cookie_index = (self.current_cookie_index + 1) % len(self.cookie_list) 
 
             # --- МОК для отладки ---
-            # class MockResponse:
-            #     def __init__(self, status_code=200):
-            #         self.status_code = status_code
-            #     def json(self):
-            #         return {"mock": True, "status": self.status_code}
+            class MockResponse:
+                def __init__(self, status_code=200):
+                    self.status_code = status_code
+                def json(self):
+                    return {"mock": True, "status": self.status_code}
             
-            # self.logger.debug("МОК: заявка не отправляется, возврат фейкового ответа.")
-            # return MockResponse(status_code=200)
+            self.logger.debug("МОК: заявка не отправляется, возврат фейкового ответа.")
+            return MockResponse(status_code=200)
             # ------------------------
 
-            response = self.api_controller.request(
-                base_url="https://seller-weekly-report.wildberries.ru",
-                method="POST",
-                endpoint="/ns/shifts/analytics-back/api/v1/order",
-                json=request_body,
-                cookies=cookies,
-                headers=headers)
+            # response = self.api_controller.request(
+            #     base_url="https://seller-weekly-report.wildberries.ru",
+            #     method="POST",
+            #     endpoint="/ns/shifts/analytics-back/api/v1/order",
+            #     json=request_body,
+            #     cookies=cookies,
+            #     headers=headers)
             
-            self.logger.info("Ответ на transfer request: status=%s", getattr(response, "status_code", None))
-            return response
+            # self.logger.info("Ответ на transfer request: status=%s", getattr(response, "status_code", None))
+            # return response
 
         except Exception as e:
             self.logger.exception("Ошибка в send_transfer_request: %s", e)

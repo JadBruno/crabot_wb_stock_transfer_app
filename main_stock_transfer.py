@@ -40,7 +40,7 @@ def main():
                                                              logger=logger,
                                                              size_map=db_data_fetcher.size_map)
         
-        delivered_supply_processor.process_delivered_supplies()
+        # delivered_supply_processor.process_delivered_supplies()
 
 
         one_time_task_processor = OneTimeTaskProcessor(api_controller=api_controller,
@@ -89,10 +89,20 @@ def main():
                         next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=1)
                         wait_seconds = (next_hour - now).total_seconds()
                         logger.info(f"Ждём до {next_hour.strftime('%H:%M:%S')} ({int(wait_seconds)} сек.)")
-                        time.sleep(wait_seconds)
+                        # time.sleep(wait_seconds)
 
                 send_request_task.start() # Запуск потока отправки заявок
                 insert_products_on_the_way_task.start() # Запуск потока записи в бд отправ
+
+                try:
+                        logger.info("Ожидаем завершения потоков...")
+                        send_request_task.join()  # ждем завершения отправки
+                        regular_task_factory.sent_product_queue.join()  # ждем пока все товары запишутся в БД
+                        regular_task_factory.sent_product_queue.put(None)  # сигнал остановки
+                        insert_products_on_the_way_task.join()  # ждем завершения потока
+                except Exception as e:
+                        logger.error(f"Ошибка при завершении потоков: {e}")
+
         
                 one_time_task_processor.process_one_time_tasks(quota_dict=quota_dict, 
                                                                 office_id_list=office_id_list) # Запуск обработки разовых заданий
@@ -104,13 +114,7 @@ def main():
                 quota_dict_unmocked = asyncio.run(wb_api_data_fetcher.fetch_quota(office_id_list=office_id_list)) 
                 mysql_controller.log_warehouse_state(quota_dict_unmocked) # Залогировали состояние складов по квотам
                 
-                try:
-                        send_request_task.join()  # ждем завершения отправки
-                        regular_task_factory.sent_product_queue.join()  # ждем пока все товары запишутся в БД
-                        regular_task_factory.sent_product_queue.put(None)  # сигнал остановки
-                        insert_products_on_the_way_task.join()  # ждем завершения потока
-                except Exception as e:
-                        logger.error(f"Ошибка при завершении потоков: {e}")
+
 
 
 if __name__ == '__main__':
