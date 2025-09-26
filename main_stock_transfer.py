@@ -40,7 +40,7 @@ def main():
                                                              logger=logger,
                                                              size_map=db_data_fetcher.size_map)
         
-        # delivered_supply_processor.process_delivered_supplies()
+        delivered_supply_processor.process_delivered_supplies()
 
 
         one_time_task_processor = OneTimeTaskProcessor(api_controller=api_controller,
@@ -89,7 +89,7 @@ def main():
                         next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=1)
                         wait_seconds = (next_hour - now).total_seconds()
                         logger.info(f"Ждём до {next_hour.strftime('%H:%M:%S')} ({int(wait_seconds)} сек.)")
-                        # time.sleep(wait_seconds)
+                        time.sleep(wait_seconds)
 
                 send_request_task.start() # Запуск потока отправки заявок
                 insert_products_on_the_way_task.start() # Запуск потока записи в бд отправ
