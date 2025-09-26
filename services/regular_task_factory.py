@@ -1117,7 +1117,12 @@ class RegularTaskFactory:
                     continue
 
                 response = self._execute_request(req_data)
-                if not response:
+
+                if response.status_code == 429:
+                    a = 1
+
+                if response is None:
+                    self.logger.error("Ответ от API пустой. Пропуск заявки.")
                     continue
 
                 result = self._handle_response(response, req_data, quota_dict, size_map)
@@ -1160,7 +1165,7 @@ class RegularTaskFactory:
 
         try:
             response = self.send_transfer_request(body)
-            time.sleep(0.1)
+            time.sleep(1)
             return response
         except Exception as e:
             self.logger.exception("Ошибка при отправке запроса: %s", e)
@@ -1390,7 +1395,7 @@ class RegularTaskFactory:
             #         return {"mock": True, "status": self.status_code}
             
             # self.logger.debug("МОК: заявка не отправляется, возврат фейкового ответа.")
-            # return MockResponse(status_code=200)
+            # return MockResponse(status_code=429)
             # ------------------------
 
             response = self.api_controller.request(
