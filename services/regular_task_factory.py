@@ -1118,9 +1118,6 @@ class RegularTaskFactory:
 
                 response = self._execute_request(req_data)
 
-                if response.status_code == 429:
-                    a = 1
-
                 if response is None:
                     self.logger.error("Ответ от API пустой. Пропуск заявки.")
                     continue
