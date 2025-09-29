@@ -85,8 +85,8 @@ def main():
 
                 insert_products_on_the_way_task = threading.Thread(target=regular_task_factory.product_on_the_way_consumer)
 
-                if now.minute != 0 and now.second != 1:
-                        next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=1)
+                if now.minute != 0 and now.second != 0:
+                        next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=0)
                         wait_seconds = (next_hour - now).total_seconds()
                         logger.info(f"Ждём до {next_hour.strftime('%H:%M:%S')} ({int(wait_seconds)} сек.)")
                         time.sleep(wait_seconds)
