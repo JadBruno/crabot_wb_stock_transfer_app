@@ -1226,7 +1226,11 @@ class RegularTaskFactory:
 
         if self.cooldown_error_count == len(self.timeout_error_request_cooldown_list):
             return False
-        
+
+        if self.send_transfer_request_cooldown < 1:
+            self.logger.debug("Установку кулдауна между запросами на 1 секунду")
+            self.send_transfer_request_cooldown = 1
+
         cooldown = self.timeout_error_request_cooldown_list[self.timeout_error_cooldown_index]
 
         self.logger.warning("Ошибка сервера. Кулдаун %s секунд перед повтором.", cooldown)
@@ -1240,6 +1244,10 @@ class RegularTaskFactory:
         if self.bad_request_count >= self.bad_request_max_count:
             self.logger.error("Превышено количество 4xx ошибок. Прерываем.")
             return False
+        
+        if self.send_transfer_request_cooldown < 1:
+            self.logger.debug("Установку кулдауна между запросами на 1 секунду")
+            self.send_transfer_request_cooldown = 1
 
         self.bad_request_count += 1
         self.logger.error("Ошибка 4xx. Пробуем обновить квоты.")
