@@ -45,7 +45,7 @@ class RegularTaskFactory:
         self.bad_request_max_count = 10
         self.cooldown_error_count = 0
         # self.timeout_error_request_cooldown_list = [1, 3, 10, 30, 60, 120]
-        self.timeout_error_request_cooldown_list = [60, 90, 120, 150, 180, 300, 300, 300, 300, 300]
+        self.timeout_error_request_cooldown_list = [60, 60, 60, 60, 60]
         self.timeout_error_cooldown_index = 0
         self.send_transfer_request_cooldown = 0.1
         self.all_request_bodies_to_send = []
