@@ -1121,11 +1121,15 @@ class RegularTaskFactory:
                 if response is None:
                     self.logger.error("Ответ от API пустой. Пропуск заявки.")
                     continue
-
+                self.logger.debug("Ответ от API получен, ожидаем %s секунд", self.send_transfer_request_cooldown)
+                time.sleep(self.send_transfer_request_cooldown)
+                self.logger.debug("Ожидание завершено.")
                 result = self._handle_response(response, req_data, quota_dict, size_map)
                 if result is False:
                     self.logger.info("Прекращаем отправку заявок.")
                     break
+
+                        # time.sleep(self.send_transfer_request_cooldown)
 
             except Exception as e:
                 self.logger.exception(
@@ -1133,8 +1137,6 @@ class RegularTaskFactory:
                     idx, req_data.get("src_warehouse_id"), req_data.get("dst_warehouse_id"), e)
 
 
-        # self.sent_product_queue.join()
-        # self.sent_product_queue.put(None)
         self.all_request_bodies_to_send.clear()
         self.logger.info("Завершение обработки заявок на трансфер.")
 
@@ -1162,7 +1164,6 @@ class RegularTaskFactory:
 
         try:
             response = self.send_transfer_request(body)
-            # time.sleep(0.1)
             return response
         except Exception as e:
             self.logger.exception("Ошибка при отправке запроса: %s", e)
@@ -1176,7 +1177,6 @@ class RegularTaskFactory:
 
         status = response.status_code
         self.logger.info("Ответ от API: status=%s для nmID=%s", status, getattr(product, "product_wb_id", None))
-        time.sleep(self.send_transfer_request_cooldown)
         if status in [200, 201, 202, 204]:
             result = self._on_successful_request(src_id, dst_id, product, warehouse_entries, quota_dict, size_map)
             return result
