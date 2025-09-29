@@ -1162,7 +1162,7 @@ class RegularTaskFactory:
 
         try:
             response = self.send_transfer_request(body)
-            time.sleep(1)
+            # time.sleep(0.1)
             return response
         except Exception as e:
             self.logger.exception("Ошибка при отправке запроса: %s", e)
