@@ -787,7 +787,10 @@ class MySQLController():
 
     @simple_logger(logger_name=__name__)
     def get_all_techsizes_with_chrtid(self):
-        sql = """SELECT * FROM mp_data.a_wb_stock_transfer_techsize_with_chrt_id"""
+        sql = """SELECT nmID as nmId, 
+                        techsize, 
+                        chrtID as chrt_id 
+                FROM mp_data.a_wb_product_info_product_sizes WHERE is_archived = 0"""
         try:
             result = self.db.execute_query(sql)
             result_dict = {}
