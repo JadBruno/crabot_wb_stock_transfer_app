@@ -59,14 +59,16 @@ class MySQLController():
         products_query = """SELECT 
                                 task_id,
                                 product_wb_id,
-                                size_id,
+                                sizes.`size_id` as tech_size_id,
+                                tasks.size_id,
                                 transfer_qty,
                                 transfer_qty_left,
                                 is_archived
-                            FROM mp_data.a_wb_stock_transfer_products_to_one_time_tasks
+                            FROM mp_data.a_wb_stock_transfer_products_to_one_time_tasks tasks
+                            LEFT JOIN mp_data.a_wb_izd_size sizes ON sizes.`size` = tasks.size_id   
                             WHERE task_id IS NOT NULL
                             AND product_wb_id IS NOT NULL
-                            AND size_id IS NOT NULL
+                            AND tasks.size_id IS NOT NULL
                             AND transfer_qty IS NOT NULL
                             AND transfer_qty_left IS NOT NULL;
                         """
@@ -81,6 +83,7 @@ class MySQLController():
 
             size_info = ProductSizeInfo(
                 size_id=str(p["size_id"]),
+                tech_size_id=int(p["tech_size_id"]),
                 transfer_qty=p["transfer_qty"],
                 transfer_qty_left_virtual=p["transfer_qty_left"],
                 transfer_qty_left_real=p["transfer_qty_left"],
@@ -812,21 +815,4 @@ class MySQLController():
         except Exception:
             return False
         
-
-
-    @simple_logger(logger_name=__name__)
-    def insert_chrtid_with_techsize(self, chrtid_entries: list) -> bool:
-        
-        values = [(entry['techSize'], entry['chrtID'], entry['nmID']) for entry in chrtid_entries]
-        query = """INSERT INTO mp_data.a_wb_stock_transfer_techsize_with_chrt_id (techsize, chrt_id, nmID) VALUES (%s, %s, %s)
-                ON DUPLICATE KEY UPDATE chrt_id = VALUES(chrt_id);"""
-        
-        try:
-
-            self.db.execute_many(query, values)
-
-            return True
-
-        except Exception as e:
-            return False
 

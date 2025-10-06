@@ -49,8 +49,18 @@ class WBAPIDataFetcher:
 
             for office_id in office_id_list:
                 for mode in modes:
-                    if office_id == 301987:
-                        a = 1
+
+                    cookie_count = len(self.cookie_list)
+
+                    for _ in range(cookie_count):
+                        if cookie_count == 0:
+                            self.logger.error("Список cookies пуст. Невозможно выполнить запрос квоты.")
+                            return 0
+                        
+                        if cookie_index >= cookie_count:
+                            cookie_index = 0
+
+                            
 
                     cur_cookie_data = self.cookie_list[cookie_index]
                     cur_cookies = cur_cookie_data['cookies']
@@ -136,28 +146,46 @@ class WBAPIDataFetcher:
 
     def fetch_warehouse_list(self, random_present_nmid) -> list[int] | None:
         try:
-            cookies = self.cookie_list[0]['cookies']
-            tokenV3 = self.cookie_list[0]['tokenV3']
+            cookie_count = len(self.cookie_list)
 
-            headers = self.headers.copy()
-            headers['AuthorizeV3'] = tokenV3
+            for _ in range(cookie_count):
+
+                if cookie_count == 0:
+                    self.logger.error("Список cookies пуст. Невозможно выполнить запрос списка складов.")
+                    return None
+                if self.current_cookie_index >= cookie_count:
+                    self.current_cookie_index = 0
+
+                cookies = self.cookie_list[self.current_cookie_index]['cookies']
+                tokenV3 = self.cookie_list[self.current_cookie_index]['tokenV3']
+
+                headers = self.headers.copy()
+                headers['AuthorizeV3'] = tokenV3
 
 
-            response = self.api_controller.request(
-                base_url="https://seller-weekly-report.wildberries.ru",
-                method="GET",
-                endpoint="/ns/shifts/analytics-back/api/v1/stocks",
-                params={"nmID": str(random_present_nmid)},
-                cookies=cookies,
-                headers=headers)
-            
-            self.logger.debug("Ответ получен: status=%s", getattr(response, "status_code", None))
+                response = self.api_controller.request(
+                    base_url="https://seller-weekly-report.wildberries.ru",
+                    method="GET",
+                    endpoint="/ns/shifts/analytics-back/api/v1/stocks",
+                    params={"nmID": str(random_present_nmid)},
+                    cookies=cookies,
+                    headers=headers)
+                
+                self.logger.debug("Ответ получен: status=%s", getattr(response, "status_code", None))
 
-            response_json = response.json()
-            dst_data = response_json.get("data", {}).get("dst", [])
-            office_id_list = [w.get("officeID") for w in dst_data if "officeID" in w]
-            self.logger.info("Получено офисов (dst): %s", len(office_id_list))
-            return office_id_list
+                if response.status_code in (401, 403):
+                    self.logger.error("Ответ от ВБ не соответствует ожиданию, status=%s",
+                                      getattr(response, "status_code", None))
+                    self.cookie_list.pop(self.current_cookie_index)
+                    self.current_cookie_index = (self.current_cookie_index + 1) % len(self.cookie_list)
+                    continue
+
+                response_json = response.json()
+                dst_data = response_json.get("data", {}).get("dst", [])
+                office_id_list = [w.get("officeID") for w in dst_data if "officeID" in w]
+                self.logger.info("Получено офисов (dst): %s", len(office_id_list))
+                self.current_cookie_index = (self.current_cookie_index + 1) % len(self.cookie_list)
+                return office_id_list
 
         except Exception as e:
             self.logger.exception("Ошибка в fetch_warehouse_list: %s", e)
@@ -284,4 +312,55 @@ class WBAPIDataFetcher:
 
         return chrtid_entries
 
-        
+
+    @staticmethod
+    def check_cookie_list(self, cookie_list_original, random_present_nmid):
+
+        self.logger.info('Проверяем кукис на работоспособность')
+
+        cookie_list_filtered = []
+
+        all_office_id_list = []
+
+        for cookie_data in cookie_list_original:
+
+            cookies = cookie_data['cookies']
+            tokenV3 = cookie_data['tokenV3']
+
+            headers = self.headers.copy()
+            headers['AuthorizeV3'] = tokenV3
+
+
+            response = self.api_controller.request(
+                base_url="https://seller-weekly-report.wildberries.ru",
+                method="GET",
+                endpoint="/ns/shifts/analytics-back/api/v1/stocks",
+                params={"nmID": str(random_present_nmid)},
+                cookies=cookies,
+                headers=headers)
+            
+            self.logger.debug("Ответ получен: status=%s", getattr(response, "status_code", None))
+
+            time.sleep(1)
+
+            if response.status_code in (200, 201):
+
+                cookie_list_filtered.append(cookie_data)
+
+                if all_office_id_list == []:
+
+                    response_json = response.json()
+                    dst_data = response_json.get("data", {}).get("dst", [])
+                    all_office_id_list = [w.get("officeID") for w in dst_data if "officeID" in w]
+                    self.logger.info("Получено офисов (dst): %s", len(all_office_id_list))
+
+            else:
+                self.logger.error('Полученный ответ не соответсвует ожиданиям')
+
+        self.cookie_list = cookie_list_filtered
+        result = {'cookies':cookie_list_filtered, 'office_id_list':all_office_id_list}
+
+        return result   
+
+                
+                

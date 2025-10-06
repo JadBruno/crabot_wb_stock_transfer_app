@@ -33,6 +33,18 @@ def main():
                                      headers=authorized_headers,
                                      logger=logger)
         
+        cookie_check_result = wb_api_data_fetcher.check_cookie_list(random_present_nmid=db_data_fetcher.max_stock_nmId,
+                                                                    cookie_list_original=cookie_list)
+        
+        logger.info('Установка проверенных кукис')
+        cookie_list = cookie_check_result.get('cookies', [])
+        office_id_list = cookie_check_result.get('all_office_id_list', [])
+        if cookie_list:
+                cookie_jar = cookie_list[0]['cookies']
+                authorized_headers['AuthorizeV3'] = cookie_list[0]['tokenV3']
+        else:
+                logger.warning('Список действующих кукис не был получен. Отключаю скрипт')
+                return None
 
         delivered_supply_processor = DeliveredSupplyProcessor(db_controller=mysql_controller,
                                                              api_controller=api_controller,
@@ -59,7 +71,7 @@ def main():
                                                   logger=logger,
                                                   cookie_list=cookie_list)
         
-        office_id_list = wb_api_data_fetcher.fetch_warehouse_list(random_present_nmid=db_data_fetcher.max_stock_nmId) # Забрали список складов с сортировкой
+        # office_id_list = wb_api_data_fetcher.fetch_warehouse_list(random_present_nmid=db_data_fetcher.max_stock_nmId) # Забрали список складов с сортировкой
 
         now = datetime.now()
 

@@ -232,6 +232,11 @@ class RegularTaskFactory:
                                                            warehouses_available_to_stock_transfer,
                                                            warehouse_priority_dict):
         
+        if not quota_dict:
+            self.logger.warning("quota_dict is None — пропуск фильтрации складов")
+            return
+
+        
         for wid, pr in warehouse_priority_dict.items():
             q = quota_dict.get(wid, {})
             if q.get("src", None) == 0:
@@ -1268,38 +1273,58 @@ class RegularTaskFactory:
     @simple_logger(logger_name=__name__)
     def fetch_stocks_by_nmid(self, nmid: int, warehouses_in_task_list: list):
         self.logger.debug("Запрос стоков по nmID=%s для складов: %s", nmid, warehouses_in_task_list)
+
+        cookie_count = len(self.cookie_list)
         try:
-            cookies = self.cookie_list[self.current_cookie_index]['cookies']
-            tokenv3 = self.cookie_list[self.current_cookie_index]['tokenV3']
-            headers = self.headers.copy()
-            headers['AuthorizeV3'] = tokenv3
-            self.current_cookie_index = (self.current_cookie_index + 1) % len(self.cookie_list)
             
-            response = self.api_controller.request(
-                base_url="https://seller-weekly-report.wildberries.ru",
-                method="GET",
-                endpoint="/ns/shifts/analytics-back/api/v1/stocks",
-                params={"nmID": str(nmid)},
-                cookies=cookies,
-                headers=headers)
-            
-            self.logger.debug("Ответ по стокам: status=%s", getattr(response, "status_code", None))
+            for _ in range(cookie_count):
 
-            stock_by_warehouse_dict = {}
-            response_json = response.json()
-            stock_data = response_json.get("data", {})
-            src_data = stock_data.get("src", [])
-            for warehouse in src_data:
-                try:
-                    office_id = warehouse["officeID"]
-                    if office_id in warehouses_in_task_list:
-                        stock_by_warehouse_dict[office_id] = warehouse["inStock"]
-                except Exception as inner_e:
-                    self.logger.exception("Ошибка парсинга склада в стоках: %s", inner_e)
-                    continue
+                if not self.cookie_list or cookie_count == 0:
+                    self.logger.error("Список cookies пуст. Невозможно выполнить запрос стоков.")
+                    return None
 
-            self.logger.info("Получены стоки по nmID=%s: %s складов", nmid, len(stock_by_warehouse_dict))
-            return stock_by_warehouse_dict, response.status_code
+                if self.current_cookie_index >= len(self.cookie_list):
+                    self.current_cookie_index = 0
+
+                cookies = self.cookie_list[self.current_cookie_index]['cookies']
+                tokenv3 = self.cookie_list[self.current_cookie_index]['tokenV3']
+                headers = self.headers.copy()
+                headers['AuthorizeV3'] = tokenv3
+
+                self.current_cookie_index = (self.current_cookie_index + 1) % len(self.cookie_list)
+                
+                response = self.api_controller.request(
+                    base_url="https://seller-weekly-report.wildberries.ru",
+                    method="GET",
+                    endpoint="/ns/shifts/analytics-back/api/v1/stocks",
+                    params={"nmID": str(nmid)},
+                    cookies=cookies,
+                    headers=headers)
+                
+                if response.status_code in [401, 403]:
+                    self.logger.warning("Ошибка авторизации при запросе стоков nmID=%s. Пробуем следующий cookie.", nmid)
+                    self.cookie_list.pop(self.current_cookie_index)
+                    self.current_cookie_index = (self.current_cookie_index + 1) % len(self.cookie_list)
+                    continue  # Попробовать следующий cookie
+                
+                self.logger.debug("Ответ по стокам: status=%s", getattr(response, "status_code", None))
+
+                stock_by_warehouse_dict = {}
+                response_json = response.json()
+                stock_data = response_json.get("data", {})
+                src_data = stock_data.get("src", [])
+                for warehouse in src_data:
+                    try:
+                        office_id = warehouse["officeID"]
+                        if office_id in warehouses_in_task_list:
+                            stock_by_warehouse_dict[office_id] = warehouse["inStock"]
+                    except Exception as inner_e:
+                        self.logger.exception("Ошибка парсинга склада в стоках: %s", inner_e)
+                        continue
+
+                self.logger.info("Получены стоки по nmID=%s: %s складов", nmid, len(stock_by_warehouse_dict))
+                self.current_cookie_index = (self.current_cookie_index + 1) % len(self.cookie_list)
+                return stock_by_warehouse_dict, response.status_code
 
         except Exception as e:
             self.logger.exception("Ошибка в fetch_stocks_by_nmid nmID=%s: %s", nmid, e)
@@ -1386,33 +1411,51 @@ class RegularTaskFactory:
     def send_transfer_request(self, request_body: dict):
         self.logger.debug("Отправка transfer request: %s", request_body)
         try:
-            cookies = self.cookie_list[self.current_cookie_index]['cookies']
-            tokenv3 = self.cookie_list[self.current_cookie_index]['tokenV3']
-            headers = self.headers.copy()
-            headers['AuthorizeV3'] = tokenv3
-            self.current_cookie_index = (self.current_cookie_index + 1) % len(self.cookie_list) 
+            cookie_count = len(self.cookie_list)
 
-            # --- МОК для отладки ---
-            # class MockResponse:
-            #     def __init__(self, status_code=200):
-            #         self.status_code = status_code
-            #     def json(self):
-            #         return {"mock": True, "status": self.status_code}
-            
-            # self.logger.debug("МОК: заявка не отправляется, возврат фейкового ответа.")
-            # return MockResponse(status_code=429)
-            # ------------------------
+            for _ in range(cookie_count):
 
-            response = self.api_controller.request(
-                base_url="https://seller-weekly-report.wildberries.ru",
-                method="POST",
-                endpoint="/ns/shifts/analytics-back/api/v1/order",
-                json=request_body,
-                cookies=cookies,
-                headers=headers)
-            
-            self.logger.info("Ответ на transfer request: status=%s", getattr(response, "status_code", None))
-            return response
+                if not self.cookie_list or cookie_count == 0: 
+                    self.logger.error("Список cookies пуст, прекращаем выполнение запроса.") 
+                    return None
+                
+                if self.current_cookie_index >= len(self.cookie_list):
+                    self.current_cookie_index = 0
+
+                cookies = self.cookie_list[self.current_cookie_index]['cookies']
+                tokenv3 = self.cookie_list[self.current_cookie_index]['tokenV3']
+                headers = self.headers.copy()
+                headers['AuthorizeV3'] = tokenv3
+                
+
+                # --- МОК для отладки ---
+                # class MockResponse:
+                #     def __init__(self, status_code=200):
+                #         self.status_code = status_code
+                #     def json(self):
+                #         return {"mock": True, "status": self.status_code}
+                
+                # self.logger.debug("МОК: заявка не отправляется, возврат фейкового ответа.")
+                # return MockResponse(status_code=429)
+                # ------------------------
+
+                response = self.api_controller.request(
+                    base_url="https://seller-weekly-report.wildberries.ru",
+                    method="POST",
+                    endpoint="/ns/shifts/analytics-back/api/v1/order",
+                    json=request_body,
+                    cookies=cookies,
+                    headers=headers)
+                
+                if response.status_code in [401, 403]:
+                    self.logger.warning("Ошибка авторизации с текущими куки. Пробуем следующий набор.")
+                    self.cookie_list.remove(cookies)
+                    self.current_cookie_index = (self.current_cookie_index + 1) % len(self.cookie_list) 
+                    continue
+                
+                self.logger.info("Ответ на transfer request: status=%s", getattr(response, "status_code", None))
+                self.current_cookie_index = (self.current_cookie_index + 1) % len(self.cookie_list) 
+                return response
 
         except Exception as e:
             self.logger.exception("Ошибка в send_transfer_request: %s", e)
@@ -1422,39 +1465,57 @@ class RegularTaskFactory:
     @simple_logger(logger_name=__name__)
     def fetch_quota_for_single_warehouse(self,office_id, mode):
         try:
-            cookies = self.cookie_list[self.current_cookie_index]['cookies']
-            tokenv3 = self.cookie_list[self.current_cookie_index]['tokenV3']
-            headers = self.headers.copy()
-            headers['AuthorizeV3'] = tokenv3
+            cookie_count = len(self.cookie_list)
 
-            response_opt = self.api_controller.request(
-                base_url="https://seller-weekly-report.wildberries.ru",
-                method="OPTIONS",
-                endpoint="/ns/shifts/analytics-back/api/v1/quota",
-                params={"officeID": office_id, "type": mode},
-                cookies=cookies,
-                headers=headers)
-                            
-            self.logger.debug("OPTIONS квоты отправлен office_id=%s mode=%s", office_id, mode)
+            for _ in range(cookie_count):
+                if not self.cookie_list or cookie_count == 0:
+                    self.logger.error("Список cookies пуст. Невозможно выполнить запрос квоты.")
+                    return 0
+                
+                if self.current_cookie_index >= cookie_count:
+                    self.current_cookie_index = 0
 
-            if response_opt.status_code not in [200, 201, 202, 204]:
-                raise RuntimeError(f"Unexpected status code on OPTIONS quota request: {response_opt.status_code}")
+                cookies = self.cookie_list[self.current_cookie_index]['cookies']
+                tokenv3 = self.cookie_list[self.current_cookie_index]['tokenV3']
+                headers = self.headers.copy()
+                headers['AuthorizeV3'] = tokenv3
 
-            response = self.api_controller.request(base_url="https://seller-weekly-report.wildberries.ru",
-                                                    method="GET",
-                                                    endpoint="/ns/shifts/analytics-back/api/v1/quota",
-                                                    params={"officeID": office_id, "type": mode},
-                                                    cookies=cookies,
-                                                    headers=headers)
-            
-            self.logger.debug("GET квоты получен office_id=%s mode=%s status=%s",
-                                office_id, mode, getattr(response, "status_code", None))
+                response_opt = self.api_controller.request(
+                    base_url="https://seller-weekly-report.wildberries.ru",
+                    method="OPTIONS",
+                    endpoint="/ns/shifts/analytics-back/api/v1/quota",
+                    params={"officeID": office_id, "type": mode},
+                    cookies=cookies,
+                    headers=headers)
+                                
+                self.logger.debug("OPTIONS квоты отправлен office_id=%s mode=%s", office_id, mode)
 
-            response_json = response.json()
-            response_data = response_json.get("data", {})
-            response_quota = response_data.get("quota", 0)
-            self.logger.debug("Квота office_id=%s mode=%s = %s", office_id, mode, response_quota)
-            return response_quota
+                if response_opt.status_code in [401, 403]:
+                    self.logger.warning("Ошибка авторизации с текущими куки. Пробуем следующий набор.")
+                    self.cookie_list.remove(cookies)
+                    self.current_cookie_index = (self.current_cookie_index + 1) % len(self.cookie_list) 
+                    continue
+
+                if response_opt.status_code not in [200, 201, 202, 204]:
+                    raise RuntimeError(f"Unexpected status code on OPTIONS quota request: {response_opt.status_code}")
+
+                response = self.api_controller.request(base_url="https://seller-weekly-report.wildberries.ru",
+                                                        method="GET",
+                                                        endpoint="/ns/shifts/analytics-back/api/v1/quota",
+                                                        params={"officeID": office_id, "type": mode},
+                                                        cookies=cookies,
+                                                        headers=headers)
+                
+                self.logger.debug("GET квоты получен office_id=%s mode=%s status=%s",
+                                    office_id, mode, getattr(response, "status_code", None))
+
+                response_json = response.json()
+                response_data = response_json.get("data", {})
+                response_quota = response_data.get("quota", 0)
+                self.logger.debug("Квота office_id=%s mode=%s = %s", office_id, mode, response_quota)
+
+                self.current_cookie_index = (self.current_cookie_index + 1) % len(self.cookie_list) 
+                return response_quota
         
         except:
             self.logger.exception("Ошибка при запросе квоты для office_id=%s mode=%s", office_id, mode)
