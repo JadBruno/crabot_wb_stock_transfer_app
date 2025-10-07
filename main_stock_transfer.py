@@ -37,11 +37,11 @@ def main():
                                                                     cookie_list_original=cookie_list)
         
         logger.info('Установка проверенных кукис')
-        cookie_list = cookie_check_result.get('cookies', [])
+        filtered_cookie_list = cookie_check_result.get('cookies', [])
         office_id_list = cookie_check_result.get('all_office_id_list', [])
-        if cookie_list:
-                cookie_jar = cookie_list[0]['cookies']
-                authorized_headers['AuthorizeV3'] = cookie_list[0]['tokenV3']
+        if filtered_cookie_list:
+                cookie_jar = filtered_cookie_list[0]['cookies']
+                authorized_headers['AuthorizeV3'] = filtered_cookie_list[0]['tokenV3']
         else:
                 logger.warning('Список действующих кукис не был получен. Отключаю скрипт')
                 return None
@@ -69,7 +69,7 @@ def main():
                                                   headers=authorized_headers,
                                                   size_map=db_data_fetcher.size_map,
                                                   logger=logger,
-                                                  cookie_list=cookie_list)
+                                                  cookie_list=filtered_cookie_list)
         
         # office_id_list = wb_api_data_fetcher.fetch_warehouse_list(random_present_nmid=db_data_fetcher.max_stock_nmId) # Забрали список складов с сортировкой
 
@@ -114,7 +114,6 @@ def main():
                         insert_products_on_the_way_task.join()  # ждем завершения потока
                 except Exception as e:
                         logger.error(f"Ошибка при завершении потоков: {e}")
-
         
                 one_time_task_processor.process_one_time_tasks(quota_dict=quota_dict, 
                                                                 office_id_list=office_id_list) # Запуск обработки разовых заданий
