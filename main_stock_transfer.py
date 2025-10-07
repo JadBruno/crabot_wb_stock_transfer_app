@@ -38,7 +38,7 @@ def main():
         
         logger.info('Установка проверенных кукис')
         filtered_cookie_list = cookie_check_result.get('cookies', [])
-        office_id_list = cookie_check_result.get('all_office_id_list', [])
+        office_id_list = cookie_check_result.get('office_id_list', [])
         if filtered_cookie_list:
                 cookie_jar = filtered_cookie_list[0]['cookies']
                 authorized_headers['AuthorizeV3'] = filtered_cookie_list[0]['tokenV3']
@@ -101,7 +101,7 @@ def main():
                         next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=0)
                         wait_seconds = (next_hour - now).total_seconds()
                         logger.info(f"Ждём до {next_hour.strftime('%H:%M:%S')} ({int(wait_seconds)} сек.)")
-                        time.sleep(wait_seconds)
+                        # time.sleep(wait_seconds)
 
                 send_request_task.start() # Запуск потока отправки заявок
                 insert_products_on_the_way_task.start() # Запуск потока записи в бд отправ
