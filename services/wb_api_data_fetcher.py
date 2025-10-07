@@ -313,7 +313,6 @@ class WBAPIDataFetcher:
         return chrtid_entries
 
 
-    @staticmethod
     def check_cookie_list(self, cookie_list_original, random_present_nmid):
 
         self.logger.info('Проверяем кукис на работоспособность')
