@@ -105,7 +105,7 @@ def main():
                         next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(minutes=START_MINUTE) + timedelta(seconds=START_SECOND)
                         wait_seconds = (next_hour - now).total_seconds()
                         logger.info(f"Ждём до {next_hour.strftime('%H:%M:%S')} ({int(wait_seconds)} сек.)")
-                        # time.sleep(wait_seconds)
+                        time.sleep(wait_seconds)
 
                 send_request_task.start() # Запуск потока отправки заявок
                 insert_products_on_the_way_task.start() # Запуск потока записи в бд отправ
