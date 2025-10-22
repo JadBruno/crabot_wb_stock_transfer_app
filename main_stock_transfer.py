@@ -20,6 +20,10 @@ from services.wb_api_data_fetcher import WBAPIDataFetcher
 from services.db_data_fetcher import DBDataFetcher
 import threading
 
+START_HOUR = 9
+START_MINUTE = 0
+START_SECOND = 10
+
 def main():
         logger.info("Запускаем main")
 
@@ -82,7 +86,7 @@ def main():
         quota_dict = {office_id: {'src':1000000, 'dst':1000000} for office_id in office_id_list}
 
         try:
-                if datetime.now().hour == 8:
+                if datetime.now().hour == START_HOUR - 1:
                         quota_dict = {office_id: {'src':1000000, 'dst':1000000} for office_id in office_id_list}
                 else:
                         quota_dict = asyncio.run(wb_api_data_fetcher.fetch_quota(office_id_list=office_id_list))
@@ -97,8 +101,8 @@ def main():
 
                 insert_products_on_the_way_task = threading.Thread(target=regular_task_factory.product_on_the_way_consumer)
 
-                if now.minute != 0 and now.second != 0:
-                        next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(seconds=0)
+                if now.minute != START_MINUTE and now.second != START_SECOND:
+                        next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) + timedelta(minutes=START_MINUTE) + timedelta(seconds=START_SECOND)
                         wait_seconds = (next_hour - now).total_seconds()
                         logger.info(f"Ждём до {next_hour.strftime('%H:%M:%S')} ({int(wait_seconds)} сек.)")
                         time.sleep(wait_seconds)
